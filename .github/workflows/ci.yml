@@ -36,20 +36,16 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Go version and env
-        run: |
-          go version
-          go env GOMODCACHE
-
       - name: Go mod tidy check
         run: |
           cp go.mod go.mod.orig
           cp go.sum go.sum.orig
           go mod tidy
           if ! diff -q go.mod.orig go.mod > /dev/null 2>&1 || ! diff -q go.sum.orig go.sum > /dev/null 2>&1; then
-            echo "WARNING: go mod tidy produced changes"
+            echo "ERROR: go mod tidy produced changes"
             diff go.mod.orig go.mod || true
             diff go.sum.orig go.sum || true
+            exit 1
           fi
 
       - name: Go build
@@ -72,71 +68,17 @@ jobs:
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
-      - name: Debug — list migration files
-        run: |
-          echo "Current directory: $(pwd)"
-          ls -la migrations/
-          echo "--- up.sql ---"
-          cat migrations/000001_init.up.sql
-          echo "--- down.sql ---"
-          cat migrations/000001_init.down.sql
-
       - name: Install golang-migrate
         run: |
           curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz | tar xvz
           chmod +x migrate
           sudo mv migrate /usr/local/bin/
-          which migrate
-          migrate --version
-          ldd $(which migrate) || echo "ldd not available"
-
-      - name: Debug — check port and install psql
-        run: |
-          echo "Checking port 5432..."
-          timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/5432' && echo "Port 5432 is open" || echo "Port 5432 is closed or timed out"
-          echo "Installing psql..."
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
-          which psql
-          psql --version
-
-      - name: Debug — check database
-        run: |
-          echo "Trying to connect to database..."
-          psql "${{ env.DATABASE_URL }}" -c "SELECT 1" 2>&1 || echo "psql connection failed"
-          echo "Listing databases..."
-          psql "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable" -c "\l" 2>&1 || echo "Cannot list databases"
 
       - name: Migration up
-        run: |
-          success=false
-          for i in {1..30}; do
-            if migrate -path migrations -database "${{ env.DATABASE_URL }}" up; then
-              success=true
-              break
-            fi
-            echo "Migration attempt $i failed, retrying in 1s..."
-            sleep 1
-          done
-          if [ "$success" = false ]; then
-            echo "Migration up failed after 30 attempts"
-            exit 1
-          fi
+        run: migrate -path migrations -database "${{ env.DATABASE_URL }}" up
 
       - name: Migration down
-        run: |
-          success=false
-          for i in {1..30}; do
-            if migrate -path migrations -database "${{ env.DATABASE_URL }}" down; then
-              success=true
-              break
-            fi
-            echo "Migration down attempt $i failed, retrying in 1s..."
-            sleep 1
-          done
-          if [ "$success" = false ]; then
-            echo "Migration down failed after 30 attempts"
-            exit 1
-          fi
+        run: migrate -path migrations -database "${{ env.DATABASE_URL }}" down 1
 
   frontend-checks:
     runs-on: ubuntu-latest
