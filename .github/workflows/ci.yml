@@ -79,19 +79,37 @@ jobs:
           sudo mv migrate /usr/local/bin/
           migrate --version
 
-      - name: Wait for DB
+      - name: Migration up
         run: |
+          success=false
           for i in {1..30}; do
-            pg_isready -U postgres -d embalses -h localhost -p 5432 > /dev/null 2>&1 && break
+            if migrate -path migrations -database "${{ env.DATABASE_URL }}" up; then
+              success=true
+              break
+            fi
+            echo "Migration attempt $i failed, retrying in 1s..."
             sleep 1
           done
-          pg_isready -U postgres -d embalses -h localhost -p 5432
-
-      - name: Migration up
-        run: migrate -path migrations -database "${{ env.DATABASE_URL }}" up
+          if [ "$success" = false ]; then
+            echo "Migration up failed after 30 attempts"
+            exit 1
+          fi
 
       - name: Migration down
-        run: migrate -path migrations -database "${{ env.DATABASE_URL }}" down
+        run: |
+          success=false
+          for i in {1..30}; do
+            if migrate -path migrations -database "${{ env.DATABASE_URL }}" down; then
+              success=true
+              break
+            fi
+            echo "Migration down attempt $i failed, retrying in 1s..."
+            sleep 1
+          done
+          if [ "$success" = false ]; then
+            echo "Migration down failed after 30 attempts"
+            exit 1
+          fi
 
   frontend-checks:
     runs-on: ubuntu-latest
