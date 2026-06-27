@@ -1,31 +1,51 @@
-# Dependencies
-node_modules/
-__pycache__/
-*.pyc
+# Binaries
+/bin/
+*.exe
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# Downloaded raw data (never commit real data)
+data/raw/
+data/downloads/
+*.xlsx
+*.zip
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+
+# Local DB files
+*.db
+*.sqlite
+*.sqlite3
+
+# Go
+/vendor/
+/go.work
+/go.work.sum
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.vite/
 
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-npm-debug.log*
-
-# Environment
-.env
-.env.local
-
-# Build / dist
-build/
-dist/
+# Test coverage
+*.out
 coverage/
-
-# Misc
-*.tmp
-*.bak

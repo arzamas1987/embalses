@@ -1,0 +1,86 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: embalses-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: embalses
+    volumes:
+      - embalses_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d embalses"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/embalses?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - migrate
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/embalses?sslmode=disable
+      API_ADDR: :8080
+      APP_ENV: development
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: mcp
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/embalses?sslmode=disable
+      MCP_ADDR: :8081
+      APP_ENV: development
+    ports:
+      - "8081:8081"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  embalses_pgdata:

@@ -1,0 +1,7 @@
+FROM golang:1.23-alpine
+RUN apk add --no-cache ca-certificates postgresql-client
+RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+WORKDIR /migrations
+COPY migrations/ .
+ENTRYPOINT ["migrate"]
+CMD ["-path", ".", "-database", "${DATABASE_URL}", "up"]
