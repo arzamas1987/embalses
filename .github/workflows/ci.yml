@@ -22,10 +22,10 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: embalses
         options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
+          --health-cmd "pg_isready -U postgres -d embalses"
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
         ports:
           - 5432:5432
     steps:
@@ -76,11 +76,19 @@ jobs:
 
       - name: Migration up
         run: |
-          migrate -path migrations -database "${{ env.DATABASE_URL }}" up || echo "Migration up failed (debug)"
+          for i in {1..10}; do
+            if migrate -path migrations -database "${{ env.DATABASE_URL }}" up; then
+              echo "Migration up succeeded on attempt $i"
+              exit 0
+            fi
+            echo "Migrate up attempt $i failed, retrying in 1s..."
+            sleep 1
+          done
+          echo "Migration up failed after 10 attempts"
+          exit 1
 
       - name: Migration down
-        run: |
-          migrate -path migrations -database "${{ env.DATABASE_URL }}" down 1 || echo "Migration down failed (debug)"
+        run: migrate -path migrations -database "${{ env.DATABASE_URL }}" down 1
 
   frontend-checks:
     runs-on: ubuntu-latest
