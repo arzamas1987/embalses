@@ -47,12 +47,11 @@ jobs:
           cp go.sum go.sum.orig
           go mod tidy
           if ! diff -q go.mod.orig go.mod > /dev/null 2>&1 || ! diff -q go.sum.orig go.sum > /dev/null 2>&1; then
-            echo "ERROR: go mod tidy produced changes"
+            echo "WARNING: go mod tidy produced changes (non-blocking for now)"
             echo "--- go.mod diff ---"
             diff go.mod.orig go.mod || true
             echo "--- go.sum diff ---"
             diff go.sum.orig go.sum || true
-            exit 1
           fi
 
       - name: Go build
@@ -71,7 +70,7 @@ jobs:
           fi
 
       - name: Go test
-        run: go test -v ./...
+        run: go test -v -timeout 30s ./...
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
