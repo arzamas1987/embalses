@@ -44,11 +44,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
 
   mcp:
     build:
@@ -60,15 +55,10 @@ services:
       MCP_ADDR: :8081
       APP_ENV: development
     ports:
-      - "8081:8081"
+      - "8082:8081"
     depends_on:
       db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8081/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
 
   web:
     build:

@@ -46,7 +46,7 @@ docker compose up --build -d
 
 # Check health
 curl http://localhost:8080/healthz   # API
-curl http://localhost:8081/healthz  # MCP
+curl http://localhost:8082/healthz  # MCP (port 8082 due to local conflict)
 ```
 
 ## Architecture
