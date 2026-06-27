@@ -36,10 +36,24 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
+      - name: Go version and env
+        run: |
+          go version
+          go env GOMODCACHE
+
       - name: Go mod tidy check
         run: |
+          cp go.mod go.mod.orig
+          cp go.sum go.sum.orig
           go mod tidy
-          git diff --exit-code go.mod go.sum
+          if ! diff -q go.mod.orig go.mod > /dev/null 2>&1 || ! diff -q go.sum.orig go.sum > /dev/null 2>&1; then
+            echo "ERROR: go mod tidy produced changes"
+            echo "--- go.mod diff ---"
+            diff go.mod.orig go.mod || true
+            echo "--- go.sum diff ---"
+            diff go.sum.orig go.sum || true
+            exit 1
+          fi
 
       - name: Go build
         run: go build ./...
@@ -49,10 +63,15 @@ jobs:
 
       - name: Go fmt check
         run: |
-          test -z "$(gofmt -l .)"
+          fmt_files=$(gofmt -l .)
+          if [ -n "$fmt_files" ]; then
+            echo "ERROR: gofmt found unformatted files:"
+            echo "$fmt_files"
+            exit 1
+          fi
 
       - name: Go test
-        run: go test ./...
+        run: go test -v ./...
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
