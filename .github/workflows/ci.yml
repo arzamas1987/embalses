@@ -75,7 +75,12 @@ jobs:
           sudo mv migrate /usr/local/bin/
 
       - name: Migration up
-        run: migrate -path migrations -database "${{ env.DATABASE_URL }}" up
+        run: |
+          for i in {1..10}; do
+            migrate -path migrations -database "${{ env.DATABASE_URL }}" up && break
+            echo "Migrate up attempt $i failed, retrying in 1s..."
+            sleep 1
+          done
 
       - name: Migration down
         run: migrate -path migrations -database "${{ env.DATABASE_URL }}" down 1
