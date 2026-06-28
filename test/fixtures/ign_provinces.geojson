@@ -1,0 +1,47 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Zaragoza",
+        "code": "50"
+      },
+      "geometry": {
+        "type": "MultiPolygon",
+        "coordinates": [
+          [
+            [
+              [-2.0, 39.5],
+              [-2.0, 43.0],
+              [0.5, 43.0],
+              [0.5, 39.5],
+              [-2.0, 39.5]
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Barcelona",
+        "code": "08"
+      },
+      "geometry": {
+        "type": "MultiPolygon",
+        "coordinates": [
+          [
+            [
+              [1.5, 41.0],
+              [1.5, 43.0],
+              [3.0, 43.0],
+              [3.0, 41.0],
+              [1.5, 41.0]
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

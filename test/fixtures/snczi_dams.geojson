@@ -1,0 +1,47 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Presa de Mequinenza",
+        "external_id": "SN-MEQ-001",
+        "province": "Zaragoza",
+        "basin": "Ebro",
+        "risk_category": "A",
+        "river": "Ebro",
+        "municipality": "Mequinenza",
+        "basin_area_km2": 85600,
+        "capacity_hm3": 1534,
+        "nmn_elevation": 121,
+        "dam_type": "Gravedad",
+        "dam_height_m": 79
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [683000, 4577000]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Presa de Sau",
+        "external_id": "SN-SAU-002",
+        "province": "Barcelona",
+        "basin": "Ebro",
+        "risk_category": "B",
+        "river": "Ter",
+        "municipality": "Vilanova de Sau",
+        "basin_area_km2": 1037,
+        "capacity_hm3": 151.2,
+        "nmn_elevation": 440,
+        "dam_type": "Arco",
+        "dam_height_m": 83
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [447000, 4638000]
+      }
+    }
+  ]
+}
