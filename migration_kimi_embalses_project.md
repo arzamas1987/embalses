@@ -1,8 +1,8 @@
 # Embalses — Migration Guide: From Windows to Ubuntu WSL
 
-> **Date:** 2026-06-28  
-> **Branch to checkout:** `mvp/05-frontend-mvp`  
-> **Status:** Phases 0–5 complete. Ready for UI fine-tuning in WSL.
+> **Date:** 2026-06-28
+> **Branch:** `mvp/05-frontend-mvp`
+> **Status:** Phases 0–5 complete. MVP running in Docker. UI uses synthetic placeholder data; real MITECO ingestion pending.
 
 ---
 
@@ -10,9 +10,8 @@
 
 **Embalses** is a Spanish reservoir data platform — an open-source alternative to the official MITECO (Ministerio para la Transición Ecológica) water portal. It provides:
 
-- **Real-time reservoir levels** across all Spanish hydrographic basins
-- **Historical time-series analysis** with 6-month rolling data
 - **Interactive maps** (MapLibre GL) showing reservoir locations
+- **Historical time-series analysis** with 6-month rolling data
 - **Comparative analytics** (compare up to 5 reservoirs side-by-side)
 - **Data quality dashboards** with source attribution
 - **Safe query planner** — structured intent-to-SQL (no arbitrary SQL accepted)
@@ -43,7 +42,7 @@
 │  PostgreSQL 16 + PostGIS (Docker)                            │
 │  ├── PostGIS for spatial queries (ETRS89 → 4326)             │
 │  ├── Full reading lineage (source, licence, attribution)       │
-│  └── 18 seeded reservoirs with 468 weekly readings           │
+│  └── 18 seeded reservoirs with 486 weekly synthetic readings   │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -54,22 +53,30 @@
 ```
 embalses/
 ├── api/
-│   └── openapi.yaml               # OpenAPI 3 spec (Issues #29, #31)
+│   ├── openapi.yaml               # OpenAPI 3 spec (Issues #29, #31)
+│   └── placeholder.go
 ├── cmd/
+│   ├── admin/
+│   │   └── main.go                # Admin CLI entry point
 │   ├── api/
 │   │   └── main.go                # API server entry point
-│   ├── migrate/
-│   │   └── main.go                # Custom migration runner
-│   ├── parser/
+│   ├── ingest/
 │   │   └── main.go                # Batch data ingestion (Phase 2)
+│   ├── mcp/
+│   │   └── main.go                # MCP server entry point
 │   └── seed/
-│       └── main.go                # 6-month seed data (20 reservoirs)
-├── configs/
-│   ├── parser_config.json         # SNCZI + IGN parser configs
-│   └── snczi_basins.csv           # Basin mapping overrides
+│       └── main.go                # 6-month synthetic seed data generator
 ├── docs/
+│   ├── architecture.md
+│   ├── benchmark.md
+│   ├── data-sources.md            # Real upstream sources (MITECO, IGN, SAIH)
+│   ├── development.md
+│   ├── domains.md
 │   ├── issues.md                  # All 52 project issues
-│   └── query-intent.md            # Safe Query Planner grammar
+│   ├── licensing.md
+│   ├── plan.md
+│   ├── query-intent.md            # Safe Query Planner grammar
+│   └── roadmap.md
 ├── internal/
 │   ├── api/
 │   │   └── v1/
@@ -80,79 +87,116 @@ embalses/
 │   │       ├── responses.go       # Standardized JSON envelope
 │   │       └── routes.go          # Route registration
 │   ├── config/
-│   │   └── config.go              # DATABASE_URL from env
+│   │   ├── config.go              # DATABASE_URL from env
+│   │   └── config_test.go
 │   ├── db/
-│   │   └── db.go                  # pgxpool connection wrapper
+│   │   ├── db.go                  # pgxpool connection wrapper
+│   │   └── db_test.go
 │   ├── geo/
-│   │   ├── parser.go              # SNCZI / IGN XML parsers
-│   │   ├── parser_test.go         # 10 parser tests
-│   │   └── transform.go           # ETRS89 → 4326 reprojection
+│   │   ├── ign/                   # IGN parser + ingest
+│   │   │   ├── ingest.go
+│   │   │   ├── parser.go
+│   │   │   └── parser_test.go
+│   │   ├── snczi/                 # SNCZI parser + ingest
+│   │   │   ├── ingest.go
+│   │   │   ├── parser.go
+│   │   │   └── parser_test.go
+│   │   ├── joins.go               # Spatial joins
+│   │   └── joins_test.go
 │   ├── health/
-│   │   └── health.go              # /healthz handler
-│   ├── parser/
-│   │   └── main.go                # (old) ingestion entry
-│   └── planner/
-│       ├── intent.go              # QueryIntent schema + allow-lists
-│       ├── validator.go           # Injection guard + allow-list validation
-│       ├── compiler.go            # Intent → parameterized SQL
-│       └── planner_test.go        # 26 adversarial tests
+│   │   ├── health.go              # /healthz handler
+│   │   └── health_test.go
+│   ├── planner/
+│   │   ├── compiler.go            # Intent → parameterized SQL
+│   │   ├── intent.go              # QueryIntent schema + allow-lists
+│   │   ├── planner_test.go        # 26 adversarial tests
+│   │   └── validator.go           # Injection guard + allow-list validation
+│   └── version/
+│       ├── version.go
+│       └── version_test.go
 ├── migrations/
-│   ├── 000001_init.up.sql         # Core tables (reservoirs, basins, etc.)
-│   ├── 000002_geo_schema.up.sql   # PostGIS + spatial data
-│   └── 000003_api_v1.up.sql     # readings, api_keys, metering tables
+│   ├── 000001_init.down.sql
+│   ├── 000001_init.up.sql         # PostGIS extension
+│   ├── 000002_geo_schema.down.sql
+│   ├── 000002_geo_schema.up.sql   # Core tables (basins, provinces, dams, reservoirs, sources)
+│   ├── 000003_api_v1.down.sql
+│   └── 000003_api_v1.up.sql       # readings, api_keys, metering tables
 ├── scripts/                       # PowerShell (deprecated — use WSL now)
 │   ├── setup.ps1
 │   ├── start.ps1
 │   └── stop.ps1
-├── web/                           # Frontend (React + Vite + TS)
+├── test/
+│   └── fixtures/
+│       ├── ign_basins.geojson
+│       ├── ign_provinces.geojson
+│       ├── ign_reservoirs.geojson
+│       └── snczi_dams.geojson
+├── web/                           # Frontend (React + Vite + TS + Tailwind CSS v4)
 │   ├── index.html
-│   ├── vite.config.ts             # Vite + proxy to localhost:8080
+│   ├── vite.config.ts             # Vite + proxy to api:8080 (Docker network)
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── tsconfig.json
+│   ├── tsconfig.app.json
+│   ├── tsconfig.node.json
+│   ├── .gitignore
+│   ├── .oxlintrc.json
+│   ├── Dockerfile
+│   ├── README.md
 │   ├── public/
-│   │   ├── favicon.ico
+│   │   ├── favicon.svg
+│   │   ├── icons.svg
 │   │   └── manifest.json          # PWA manifest
-│   ├── src/
-│   │   ├── App.tsx                # Router + QueryClientProvider
-│   │   ├── App.test.tsx           # 4 frontend tests
-│   │   ├── main.tsx               # Entry point
-│   │   ├── api/
-│   │   │   └── client.ts          # Fetch API client (X-API-Key header)
-│   │   ├── components/
-│   │   │   └── Layout.tsx         # Header + nav + footer (govt-style)
-│   │   ├── hooks/
-│   │   │   └── useQueries.ts      # TanStack Query hooks
-│   │   ├── i18n/
-│   │   │   ├── index.ts           # i18next config (ES/EN)
-│   │   │   └── locales/
-│   │   │       ├── es.json        # Spanish translations
-│   │   │       └── en.json        # English translations
-│   │   ├── pages/
-│   │   │   ├── Basins.tsx         # Basin ranking table
-│   │   │   ├── Comparator.tsx     # Multi-reservoir comparison
-│   │   │   ├── DataQuality.tsx   # Data quality KPI grid
-│   │   │   ├── Home.tsx           # National KPIs + rankings
-│   │   │   ├── MapPage.tsx        # MapLibre map with markers
-│   │   │   ├── NotFound.tsx       # 404 page
-│   │   │   ├── ReservoirDetail.tsx # Detail + Recharts line chart
-│   │   │   ├── Reservoirs.tsx     # Paginated table
-│   │   │   ├── Settings.tsx       # Language switch (ES/EN)
-│   │   │   └── Sources.tsx        # Attribution / data sources
-│   │   ├── styles/
-│   │   │   └── global.css         # Government design system (MITECO colors)
-│   │   └── types/
-│   │       └── index.ts           # TypeScript types (APIResponse, Reservoir, etc.)
-│   ├── package.json               # Dependencies
-│   ├── tailwind.config.js         # Tailwind CSS config
-│   ├── tsconfig.app.json          # TS compiler options
-│   └── tsconfig.json
+│   └── src/
+│       ├── App.css
+│       ├── App.test.tsx           # 4 frontend tests
+│       ├── App.tsx                # Router + QueryClientProvider
+│       ├── index.css
+│       ├── main.tsx               # Entry point
+│       ├── api/
+│       │   └── client.ts          # Fetch API client (X-API-Key header)
+│       ├── assets/
+│       │   ├── hero.png
+│       │   ├── react.svg
+│       │   └── vite.svg
+│       ├── components/
+│       │   └── Layout.tsx         # Header + nav + footer (govt-style)
+│       ├── hooks/
+│       │   └── useQueries.ts      # TanStack Query hooks
+│       ├── i18n/
+│       │   ├── index.ts           # i18next config (ES/EN)
+│       │   └── locales/
+│       │       ├── en.json
+│       │       └── es.json
+│       ├── pages/
+│       │   ├── Basins.tsx         # Basin ranking table
+│       │   ├── Comparator.tsx     # Multi-reservoir comparison (mock data)
+│       │   ├── DataQuality.tsx    # Data quality KPI grid
+│       │   ├── Home.tsx           # National KPIs + rankings
+│       │   ├── MapPage.tsx        # MapLibre map with random markers
+│       │   ├── NotFound.tsx       # 404 page
+│       │   ├── ReservoirDetail.tsx # Detail + Recharts line chart
+│       │   ├── Reservoirs.tsx     # Paginated table
+│       │   ├── Settings.tsx       # Language switch (ES/EN)
+│       │   └── Sources.tsx        # Attribution / data sources
+│       ├── styles/
+│       │   └── global.css         # Government design system (MITECO colors)
+│       └── types/
+│           └── index.ts           # TypeScript types (APIResponse, Reservoir, etc.)
 ├── .env.example
-├── docker-compose.yml             # PostgreSQL + PostGIS
-├── Dockerfile
+├── docker-compose.yml             # PostgreSQL + PostGIS + API + Web + MCP
+├── Dockerfile                     # Multi-target Go build (api, mcp, ingest)
+├── Dockerfile.migrate             # golang-migrate container (broken — latest requires Go 1.24)
 ├── Makefile
-├── go.mod                         # Go 1.23, chi, pgx, gobl
-├── go.sum
-├── LICENSE                        # MIT
 ├── README.md
-└── .github/workflows/ci.yml       # GitHub Actions CI
+├── go.mod                         # Go 1.23, chi, pgx
+├── go.sum
+├── migration_kimi_embalses_project.md   # This file
+├── ui-preview.png
+└── ui-polished.png
+├── .github/
+│   └── workflows/
+│       └── ci.yml                 # GitHub Actions: go-checks, frontend-checks, e2e-smoke, license-gate, secrets-check
 ```
 
 ---
@@ -184,7 +228,7 @@ embalses/
 | Issue | Task | What was done |
 |-------|------|---------------|
 | #9 | Domain model | `Domain`, `Reservoir`, `Reading`, `Source`, `Basin`, `Province`, `Dam` structs |
-| #10 | Migration runner | `cmd/migrate` + `migrations/000001_init.up.sql` |
+| #10 | Migration runner | `migrations/` + `000001_init.up.sql` / `000002_geo_schema.up.sql` |
 | #11 | Data interfaces | `ReservoirService`, `ReadingService`, `SourceService` interfaces |
 | #12 | In-memory repository | `MemoryRepository` for fast testing without DB |
 | #13 | PostgreSQL repository | `PostgresRepository` with parameterized queries |
@@ -207,7 +251,7 @@ embalses/
 | #18 | IGN parser | IGN XML parser for dam coordinates (ETRS89) |
 | #19 | PostGIS migration | `migrations/000002_geo_schema.up.sql` with spatial columns |
 | #20 | Spatial joins | `ST_Within`, `ST_Intersects` for reservoir-basin matching |
-| #21 | ETRS89→4326 | `transform.go` reprojection using `gobl` package |
+| #21 | ETRS89→4326 | `gobl` package reprojection (transform.go) |
 | #22 | Attribution | Source table with `source`, `licence`, `attribution` fields |
 
 **Key decisions:**
@@ -326,8 +370,8 @@ User JSON → Parse → Validate (allow-lists) → Compile (parameterized SQL)
   - 🔴 < 20% — Critical (red `#dc2626`)
   - 🟠 20-40% — Low (orange `#ea580c`)
   - 🟡 40-60% — Medium (yellow `#ca8a04`)
-  - 🟢 60-80% — Good (light green `#65a30d`)
-  - 🟢 > 80% — Excellent (dark green `#059669`)
+  - 🟢 60-80% — Good (light green `#16a34a`)
+  - 🟢 > 80% — Excellent (dark green `#15803d`)
 - **Status badges:** Rounded pill badges with color-coded background
 - **Typography:** Inter via Google Fonts (system fallback), proper hierarchy
 - **Charts:** Recharts line charts with dual-axis (fill % + volume)
@@ -339,146 +383,100 @@ User JSON → Parse → Validate (allow-lists) → Compile (parameterized SQL)
 | `/` | Home | 4 KPI cards, fullest/emptiest rankings with progress bars |
 | `/mapa` | Map | MapLibre map with OSM tiles, reservoir markers, popup info |
 | `/embalses` | Reservoirs | Table with sortable columns, progress bars, status badges |
-| `/embalses/:slug` | Detail | 5 KPI cards, Recharts historical chart (6 months) |
+| `/embalses/:slug` | Detail | 4 KPI cards, Recharts historical chart (6 months) |
 | `/comparar` | Comparator | Multi-select dropdown, metric toggle, color-coded comparison chart |
 | `/cuencas` | Basins | Basin ranking table |
 | `/fuentes` | Sources | Attribution cards with MITECO licence |
 | `/calidad-datos` | Data Quality | 6 KPI cards (total, with readings, dates, provisional/official) |
 | `/ajustes` | Settings | Language switch (ES/EN), persisted to localStorage |
 
-**Seeded data:**
-- 18 real Spanish reservoirs (Mequinenza, Sau, La Serena, Alcántara, etc.)
-- 468 weekly readings spanning 6 months (Dec 2025 → Jun 2026)
-- Seasonal patterns: winter high → spring peak → summer low → autumn recovery
-- 15 basins, 46 provinces, 20 dams
+**Seeded data (synthetic — not real MITECO data):**
+
+> ⚠️ **Important:** The current seed data is algorithmically generated placeholder data. It is **not** sourced from MITECO, SAIH, or any live hydrological system. The values are produced by a simple random-walk formula with seasonal offsets. This is sufficient for UI development and API testing but must be replaced before any production or research use.
+
+- **18 reservoir names** hardcoded in `cmd/seed/main.go` (20 attempted; 2 failed because their provinces were missing from the seed list)
+- **486 weekly readings** spanning 6 months (Dec 2025 → Jun 2026), generated by `math/rand` with seasonal modifiers
+- **15 basins, 46 provinces, 18 dams**
+- Missing from seed: **Embalse de Bornos** (Cádiz not in province list) and **Embalse de Ebro** (Cantabria not in province list)
+
+**Known frontend placeholder issues:**
+- **MapPage.tsx**: Marker coordinates are random (`math.random()`) inside a Spain bounding box — not real dam coordinates
+- **Comparator.tsx**: Chart data is hardcoded mock (`mockChartData`) with 2024 dates — not fetched from the API
+- **ReservoirDetail.tsx**: Historical chart uses real API data from the synthetic seed, so dates are correct (2025–2026)
 
 ---
 
-## WSL / Ubuntu Setup Guide
+## GitHub CI — E2E Smoke Test
 
-### 1. Clone the repo in WSL
+The CI workflow (`.github/workflows/ci.yml`) includes a new `e2e-smoke` job that simulates the full Ubuntu/WSL installation end-to-end:
+
+1. Installs Go + Node.js on `ubuntu-latest`
+2. Spins up a PostgreSQL 16 + PostGIS service container
+3. Runs all migrations (`migrate up`)
+4. Seeds the database with synthetic data (`go run ./cmd/seed`)
+5. Verifies seed counts via `psql`
+6. Builds the Go API binary (`go build -o bin/api ./cmd/api`)
+7. Starts the API server in the background on `:8080`
+8. Builds the frontend (`npm run build`) with `VITE_API_KEY=test-key-123`
+9. Starts the Vite preview server in the background on `:4174`
+10. Runs smoke tests against:
+    - **API endpoints**: health, sources, reservoirs, rankings, basins, data-quality, detail, readings, compare
+    - **Frontend**: HTML delivery, proxied API via `/api/v1/sources`
+
+This ensures the entire stack — DB → API → Web — works together on every push/PR.
+
+---
+
+## WSL / Ubuntu Setup Guide (Docker-based — recommended)
+
+### 1. Clone and checkout
 
 ```bash
-# In your WSL terminal
 cd ~
 git clone https://github.com/arzamas1987/embalses.git
 cd embalses
-
-# Checkout the correct branch
 git checkout mvp/05-frontend-mvp
 ```
 
-### 2. Install dependencies
-
-```bash
-# Go 1.23+
-# Install via apt or download from https://go.dev/dl/
-sudo apt update
-sudo apt install -y golang-go
-
-# Or use the official installer:
-# wget https://go.dev/dl/go1.23.6.linux-amd64.tar.gz
-# sudo rm -rf /usr/local/go
-# sudo tar -C /usr/local -xzf go1.23.6.linux-amd64.tar.gz
-# echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
-# source ~/.bashrc
-
-# Node.js 22+
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt install -y nodejs
-
-# Verify
-node -v  # should show v22.x
-npm -v   # should show 10.x
-go version  # should show go1.23.x
-
-# Docker (optional but recommended for DB)
-# Install Docker Desktop with WSL2 integration:
-# https://docs.docker.com/desktop/wsl/
-# Then enable WSL integration in Docker Desktop settings
-```
-
-### 3. Install Go dependencies
+### 2. Start the full stack (Docker)
 
 ```bash
 cd ~/embalses
-go mod download
+# Make sure Docker Desktop is running with WSL2 integration
+
+# Start DB, API, and Web containers
+docker compose up -d db api web
+
+# Verify DB is healthy
+docker compose ps
+
+# Seed data (if not already seeded)
+docker run --rm \
+  --network embalses_default \
+  -v /home/arzamas/git/embalses:/app \
+  -w /app \
+  -e DATABASE_URL=postgres://postgres:postgres@db:5432/embalses?sslmode=disable \
+  golang:1.23-alpine \
+  sh -c "go mod download && go run ./cmd/seed"
 ```
 
-### 4. Install frontend dependencies
+### 3. Access the app
+
+| Service | URL |
+|---------|-----|
+| **Frontend** | http://localhost:5173 |
+| **API** | http://localhost:8080 |
+| **Health** | http://localhost:8080/healthz |
+
+### 4. Manual API tests
 
 ```bash
-cd ~/embalses/web
-npm install
+curl -H "X-API-Key: test-key-123" http://localhost:8080/api/v1/sources
+curl -H "X-API-Key: test-key-123" http://localhost:8080/api/v1/reservoirs
+curl -H "X-API-Key: test-key-123" "http://localhost:8080/api/v1/rankings/reservoirs?metric=fullest&limit=5"
 ```
 
-### 5. Start PostgreSQL (Docker)
-
-```bash
-cd ~/embalses
-# Make sure Docker Desktop is running with WSL integration
-docker compose up -d db
-
-# Verify
-sudo apt install -y postgresql-client  # if psql not available
-psql -h localhost -U postgres -d embalses -c "SELECT 1;"
-# Password: postgres
-```
-
-### 6. Run migrations
-
-```bash
-cd ~/embalses
-# Install migrate tool
-go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
-export PATH=$PATH:$HOME/go/bin
-
-# Run migrations
-migrate -path migrations -database "postgres://postgres:postgres@localhost:5432/embalses?sslmode=disable" up
-```
-
-### 7. Seed data
-
-```bash
-cd ~/embalses
-export DATABASE_URL="postgres://postgres:postgres@localhost:5432/embalses?sslmode=disable"
-go run ./cmd/seed
-# Expected output: 18 reservoirs, 468 readings, 15 basins, 46 provinces
-```
-
-### 8. Start the API server
-
-```bash
-cd ~/embalses
-export DATABASE_URL="postgres://postgres:postgres@localhost:5432/embalses?sslmode=disable"
-go run ./cmd/api
-# Should print: API server listening on :8080
-```
-
-**Keep this terminal running.** The API server runs in the foreground.
-
-### 9. Start the frontend (in a new terminal)
-
-Open a **new WSL terminal** and run:
-
-```bash
-cd ~/embalses/web
-export VITE_API_KEY="test-key-123"
-npm run build
-npm run preview
-# Should print: http://localhost:4174
-```
-
-**Keep this terminal running too.**
-
-### 10. Access the app
-
-Open your browser:
-- **Frontend:** http://localhost:4174
-- **API docs:** http://localhost:8080/api/v1/ (try `/healthz`)
-- **Test API:** http://localhost:8080/api/v1/sources with header `X-API-Key: test-key-123`
-
-### 11. One-command start script (for convenience)
+### 5. One-command start script (native Go + Node, no Docker for API/Web)
 
 Create `~/embalses/start.sh`:
 
@@ -574,7 +572,20 @@ npm run test
 ```bash
 curl -H "X-API-Key: test-key-123" http://localhost:8080/api/v1/sources
 curl -H "X-API-Key: test-key-123" http://localhost:8080/api/v1/reservoirs
-curl -H "X-API-Key: test-key-123" http://localhost:8080/api/v1/rankings/reservoirs?metric=fullest&limit=5
+curl -H "X-API-Key: test-key-123" "http://localhost:8080/api/v1/rankings/reservoirs?metric=fullest&limit=5"
+```
+
+### E2E smoke test (CI simulation)
+
+```bash
+cd ~/embalses
+# The CI e2e-smoke job can be reproduced locally by:
+# 1. docker compose up -d db
+# 2. migrate -path migrations -database "$DATABASE_URL" up
+# 3. go run ./cmd/seed
+# 4. go build -o bin/api ./cmd/api && ./bin/api &
+# 5. cd web && npm run build && npx vite preview --port 4174 &
+# 6. curl smoke tests against :8080 and :4174
 ```
 
 ---
@@ -598,35 +609,50 @@ curl -H "X-API-Key: test-key-123" http://localhost:8080/api/v1/rankings/reservoi
 
 ---
 
-## What to Fine-Tune Next (UI)
+## What to Fine-Tune Next (Phase 6 — Data Ingestion & UI Polish)
 
-The user is now working on `mvp/05-frontend-mvp` in WSL. The next steps are **UI polish**:
+### A. Replace synthetic data with real MITECO data (Priority: High)
 
-1. **Real map coordinates** — Currently using random lat/lng. Use actual coordinates from the `reservoirs` table (`latitude`, `longitude` columns). The `migrations/000002_geo_schema.up.sql` already has these columns.
+1. **Build MITECO ingestion pipeline**
+   - Download historical XLSX/ZIP from MITECO Boletín Hidrológico
+   - Parse weekly PDF bulletins for current data
+   - Ingest into `readings` table with proper `source_id`, `is_provisional`, `is_official` flags
+   - Target: ~374 peninsular reservoirs with real weekly data
 
-2. **Real comparator data** — Currently using mock data. Wire `Comparator.tsx` to call `postQuery()` with the selected reservoirs and date range.
+2. **Fix seed script**
+   - Add missing provinces: `Cádiz`, `Cantabria`, `Pontevedra`, etc. (check full list)
+   - Add real dam coordinates from `test/fixtures/snczi_dams.geojson`
+   - Use `latitude`/`longitude` columns in `reservoirs` table (already in schema via `geometry`)
 
-3. **Actual fill colors on map** — Markers should be color-coded based on current fill level (red/orange/yellow/green).
+3. **Real-time enrichment (SAIH)**
+   - Start with SAIH Ebro (`chebro.es`) — best documented
+   - Then SAIH Júcar (`aps.chj.es`) — exposes WMS + CSV
+   - Remaining basins: Duero, Tajo, Guadiana, Segura, Guadalquivir, Miño-Sil
 
-4. **More responsive design** — Test on mobile. The current layout works but could be tighter on small screens.
+### B. UI Polish (Priority: Medium)
 
-5. **Loading states** — Better skeleton loaders instead of plain "Loading..." text.
+1. **Real map coordinates** — Use actual lat/lng from `reservoirs` table (not random)
+2. **Real comparator data** — Wire `Comparator.tsx` to call `postQuery()` with selected reservoirs
+3. **Actual fill colors on map** — Markers color-coded based on current fill level (already partially done)
+4. **More responsive design** — Test on mobile; tighten layout on small screens
+5. **Loading states** — Skeleton loaders instead of plain "Loading..." text
+6. **Error handling** — Toast notifications for API errors, retry buttons
+7. **Chart enhancements** — Tooltips with exact values, date formatting, zoom/pan
+8. **Search/filter** — Search bar on reservoirs list page
+9. **Date picker** — Custom date ranges for historical views
+10. **Export** — Download CSV/JSON from the query endpoint
 
-6. **Error handling** — Toast notifications for API errors, retry buttons.
+### C. Infrastructure
 
-7. **Chart enhancements** — Tooltips with exact values, date formatting, zoom/pan on charts.
-
-8. **Search/filter** — Add a search bar on the reservoirs list page.
-
-9. **Date picker** — Allow users to select custom date ranges for historical views.
-
-10. **Export** — Download CSV/JSON from the query endpoint.
+11. **Fix `Dockerfile.migrate`** — Current `latest` tag requires Go 1.24, but project uses Go 1.23. Pin to a compatible version or build from a compatible base.
+12. **Add LICENSE file** — MIT license is referenced in docs but the file is missing from the repo.
+13. **Add `configs/` directory** — For parser configurations, basin mappings, etc.
 
 ---
 
 ## License
 
-MIT License. Data is MITECO open data under `Ley 37/2007 + RD 1495/2011`.
+MIT License (file missing from repo — should be added). Data is MITECO open data under `Ley 37/2007 + RD 1495/2011`.
 
 ---
 
@@ -639,4 +665,4 @@ MIT License. Data is MITECO open data under `Ley 37/2007 + RD 1495/2011`.
 ---
 
 *Generated by Kimi Work on 2026-06-28.*
-*Last updated: Phase 5 complete, ready for WSL migration and UI fine-tuning.*
+*Last updated: Phase 5 complete, MVP running in Docker/WSL with synthetic data. E2E CI smoke test added. Ready for real MITECO data ingestion (Phase 6).*

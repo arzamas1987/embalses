@@ -168,3 +168,194 @@ jobs:
             exit 1
           fi
           echo "No secrets detected in committed files"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # E2E Smoke Test — simulates Ubuntu/WSL installation end-to-end
+  # Installs Go, Node, Postgres; runs migrations, seeds, builds API + web,
+  # starts both services, and runs curl smoke tests against the UI and API.
+  # ──────────────────────────────────────────────────────────────────────────
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: embalses
+        options: >-
+          --health-cmd "pg_isready -U postgres -d embalses"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Go toolchain ──
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Go build (all binaries)
+        run: go build ./...
+
+      # ── Node toolchain ──
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./web
+        run: npm ci
+
+      # ── Database tooling ──
+      - name: Install PostgreSQL client and jq
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client jq
+
+      # ── Database migrations ──
+      - name: Install golang-migrate
+        run: |
+          curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz | tar xvz
+          chmod +x migrate
+          sudo mv migrate /usr/local/bin/
+
+      - name: Run migrations up
+        run: migrate -path migrations -database "${{ env.DATABASE_URL }}" up
+
+      # ── Seed synthetic data ──
+      - name: Seed database
+        run: go run ./cmd/seed
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Verify seed
+        run: |
+          echo "=== Reservoirs ==="
+          psql -h localhost -U postgres -d embalses -c "SELECT COUNT(*) FROM reservoirs;"
+          echo "=== Readings ==="
+          psql -h localhost -U postgres -d embalses -c "SELECT COUNT(*) FROM readings;"
+          echo "=== Basins ==="
+          psql -h localhost -U postgres -d embalses -c "SELECT COUNT(*) FROM basins;"
+          echo "=== API Keys ==="
+          psql -h localhost -U postgres -d embalses -c "SELECT COUNT(*) FROM api_keys;"
+        env:
+          PGPASSWORD: postgres
+
+      # ── Build & start API ──
+      - name: Build API binary
+        run: go build -o bin/api ./cmd/api
+
+      - name: Start API server (background)
+        run: |
+          ./bin/api &
+          echo "API_PID=$!" >> $GITHUB_ENV
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          PORT: 8080
+
+      - name: Wait for API health
+        run: |
+          for i in {1..20}; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/healthz || true)
+            if [ "$code" = "200" ]; then
+              echo "API ready on :8080"
+              exit 0
+            fi
+            echo "API not ready yet (attempt $i)..."
+            sleep 1
+          done
+          echo "ERROR: API did not become healthy"
+          exit 1
+
+      # ── Build & start frontend ──
+      - name: Build frontend
+        working-directory: ./web
+        run: npm run build
+        env:
+          VITE_API_KEY: test-key-123
+
+      - name: Start frontend preview (background)
+        working-directory: ./web
+        run: |
+          npx vite preview --port 4174 --host &
+          echo "WEB_PID=$!" >> $GITHUB_ENV
+
+      - name: Wait for frontend
+        run: |
+          for i in {1..20}; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4174/ || true)
+            if [ "$code" = "200" ]; then
+              echo "Frontend ready on :4174"
+              exit 0
+            fi
+            echo "Frontend not ready yet (attempt $i)..."
+            sleep 1
+          done
+          echo "ERROR: Frontend did not become ready"
+          exit 1
+
+      # ── API smoke tests (synthetic data) ──
+      - name: Smoke test API endpoints
+        run: |
+          set -e
+          API_KEY="test-key-123"
+          BASE="http://localhost:8080"
+
+          echo "--- Health ---"
+          curl -sf "$BASE/healthz" | jq .
+
+          echo "--- Sources ---"
+          curl -sf -H "X-API-Key: $API_KEY" "$BASE/api/v1/sources" | jq '.data | length'
+
+          echo "--- Reservoirs ---"
+          curl -sf -H "X-API-Key: $API_KEY" "$BASE/api/v1/reservoirs" | jq '.data | length'
+
+          echo "--- Rankings (fullest) ---"
+          curl -sf -H "X-API-Key: $API_KEY" "$BASE/api/v1/rankings/reservoirs?metric=fullest&limit=5" | jq '.data | length'
+
+          echo "--- Rankings (emptiest) ---"
+          curl -sf -H "X-API-Key: $API_KEY" "$BASE/api/v1/rankings/reservoirs?metric=emptiest&limit=5" | jq '.data | length'
+
+          echo "--- Basins ---"
+          curl -sf -H "X-API-Key: $API_KEY" "$BASE/api/v1/basins" | jq '.data | length'
+
+          echo "--- Data Quality ---"
+          curl -sf -H "X-API-Key: $API_KEY" "$BASE/api/v1/data-quality" | jq '.data.total_reservoirs'
+
+          echo "--- Reservoir Detail (Alcántara) ---"
+          curl -sf -H "X-API-Key: $API_KEY" "$BASE/api/v1/reservoirs/Embalse%20de%20Alc%C3%A1ntara" | jq '.data.name'
+
+          echo "--- Readings (Alcántara) ---"
+          curl -sf -H "X-API-Key: $API_KEY" "$BASE/api/v1/reservoirs/Embalse%20de%20Alc%C3%A1ntara/readings" | jq '.data | length'
+
+          echo "--- Compare ---"
+          curl -sf -H "X-API-Key: $API_KEY" "$BASE/api/v1/compare?reservoir=Embalse%20de%20Alc%C3%A1ntara&reservoir=Embalse%20de%20Mequinenza" | jq '.data | keys | length'
+
+      # ── Frontend smoke tests ──
+      - name: Smoke test frontend
+        run: |
+          set -e
+          echo "--- Frontend HTML ---"
+          curl -sf http://localhost:4174/ | grep -q "doctype" && echo "HTML OK"
+
+          echo "--- Frontend proxied API (via /api) ---"
+          curl -sf -H "X-API-Key: test-key-123" http://localhost:4174/api/v1/sources | jq '.data | length'
+
+          echo "--- Frontend assets ---"
+          curl -sf -o /dev/null -w "%{http_code}" http://localhost:4174/assets/ || true
+
+      # ── Cleanup ──
+      - name: Stop services
+        if: always()
+        run: |
+          echo "Stopping API and frontend..."
+          kill $API_PID 2>/dev/null || true
+          kill $WEB_PID 2>/dev/null || true
+          sleep 1
+          echo "Done."
