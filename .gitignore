@@ -22,6 +22,9 @@ data/downloads/
 
 # Local DB files
 *.db
+!data/embalses.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 
