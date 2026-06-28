@@ -1,11 +1,13 @@
 package v1
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/arzamas1987/embalses/internal/planner"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -217,4 +219,43 @@ func (h *Handler) GetDataQuality(w http.ResponseWriter, r *http.Request) {
 	}
 	lineage, _ := QueryLineage(ctx, h.Pool, "MITECO")
 	WriteJSON(w, http.StatusOK, APIResponse{Data: report, Lineage: &lineage})
+}
+
+// Query accepts a Query Intent JSON, validates it, compiles a plan,
+// executes it, and returns results plus the transparent plan.
+func (h *Handler) Query(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Parse JSON body
+	var intent planner.QueryIntent
+	if err := json.NewDecoder(r.Body).Decode(&intent); err != nil {
+		WriteError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+
+	// 1. Validate intent against allow-lists
+	if err := planner.ValidateIntent(intent); err != nil {
+		WriteError(w, http.StatusBadRequest, "invalid_intent", err.Error())
+		return
+	}
+
+	// 2. Compile plan (never executes user input as SQL)
+	plan, err := planner.CompilePlan(intent)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, "compile_error", err.Error())
+		return
+	}
+
+	// 3. Execute plan with parameterized queries only
+	result, err := planner.ExecutePlan(ctx, h.Pool, plan)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "execution_error", err.Error())
+		return
+	}
+
+	lineage, _ := QueryLineage(ctx, h.Pool, "MITECO")
+	WriteJSON(w, http.StatusOK, APIResponse{
+		Data:    result,
+		Lineage: &lineage,
+	})
 }

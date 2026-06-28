@@ -29,5 +29,6 @@ func RegisterRoutes(r chi.Router, pool *pgxpool.Pool) {
 		r.Get("/rankings/reservoirs", h.GetRankings)
 		r.Get("/compare", h.CompareReservoirs)
 		r.Get("/data-quality", h.GetDataQuality)
+		r.Post("/query", h.Query)
 	})
 }
