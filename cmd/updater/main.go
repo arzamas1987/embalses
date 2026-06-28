@@ -12,9 +12,9 @@ import (
 
 func main() {
 	var (
-		dbPath     = flag.String("db", "data/embalses.db", "Path to SQLite database")
-		fullImport = flag.Bool("full", false, "Run full historical import (one-time)")
-		geoOnly    = flag.Bool("geo-only", false, "Import only GeoJSON fixtures (GPS + metadata)")
+		dbPath       = flag.String("db", "data/embalses.db", "Path to SQLite database")
+		fullImport   = flag.Bool("full", false, "Run full historical import (one-time)")
+		geoOnly      = flag.Bool("geo-only", false, "Import only GeoJSON fixtures (GPS + metadata)")
 		seedReadings = flag.Bool("seed-readings", false, "Seed synthetic 6-month readings")
 	)
 	flag.Parse()
