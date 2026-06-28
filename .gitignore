@@ -49,3 +49,5 @@ Thumbs.db
 # Test coverage
 *.out
 coverage/
+*.db-shm
+*.db-wal
