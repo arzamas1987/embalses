@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
@@ -71,9 +72,31 @@ func seedSources(db *sql.DB) error {
 }
 
 func importSNCZI(db *sql.DB) error {
-	features, err := snczi.Parse("test/fixtures/snczi_dams.geojson")
+	// Clear existing test fixtures to avoid slug conflicts with real data
+	if _, err := db.Exec(`DELETE FROM readings`); err != nil {
+		return fmt.Errorf("clear readings: %w", err)
+	}
+	if _, err := db.Exec(`DELETE FROM reservoirs`); err != nil {
+		return fmt.Errorf("clear reservoirs: %w", err)
+	}
+	if _, err := db.Exec(`DELETE FROM dams`); err != nil {
+		return fmt.Errorf("clear dams: %w", err)
+	}
+	if _, err := db.Exec(`DELETE FROM basins`); err != nil {
+		return fmt.Errorf("clear basins: %w", err)
+	}
+	if _, err := db.Exec(`DELETE FROM provinces`); err != nil {
+		return fmt.Errorf("clear provinces: %w", err)
+	}
+	log.Println("Cleared existing test data.")
+
+	features, err := snczi.Parse("data/snczi_reservoirs.geojson")
 	if err != nil {
 		return fmt.Errorf("parse SNCZI: %w", err)
+	}
+
+	if len(features) == 0 {
+		return fmt.Errorf("no SNCZI features found")
 	}
 
 	for _, f := range features {
@@ -139,7 +162,7 @@ func importSNCZI(db *sql.DB) error {
 				longitude = excluded.longitude
 		`, damName, f.ExternalID, f.RiskCategory, f.River, f.Municipality, f.Province, f.Basin,
 			basinID, provinceID, f.BasinAreaKm2, f.CapacityHM3, f.NMNElevation, f.DamType, f.DamHeightM,
-			lat, lon, 3) // source_id 3 = IGN
+			lat, lon, 2) // source_id 2 = SNCZI
 		if err != nil {
 			return fmt.Errorf("insert dam %s: %w", f.Name, err)
 		}
@@ -168,7 +191,7 @@ func importSNCZI(db *sql.DB) error {
 				latitude = excluded.latitude,
 				longitude = excluded.longitude
 		`, reservoirName, f.ExternalID, reservoirSlug, basinID, provinceID,
-			f.CapacityHM3, lat, lon, 3, damName)
+			f.CapacityHM3, lat, lon, 2, damName)
 		if err != nil {
 			return fmt.Errorf("insert reservoir %s: %w", reservoirName, err)
 		}
