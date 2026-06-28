@@ -1,0 +1,330 @@
+openapi: 3.0.3
+info:
+  title: Embalses API
+  description: |
+    Spanish reservoir data platform — REST API v1.
+    All data responses include source lineage and attribution where available.
+  version: 1.0.0
+  contact:
+    name: Embalses Team
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIResponse'
+              example:
+                data: { status: ok, service: api }
+
+  /readyz:
+    get:
+      summary: Readiness check
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIResponse'
+        '503':
+          description: Service is not ready (e.g., DB unavailable)
+
+  /sources:
+    get:
+      summary: List data sources
+      tags: [Sources]
+      security:
+        - apiKey: []
+      responses:
+        '200':
+          description: List of sources with attribution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIResponse'
+        '401':
+          description: Unauthorized
+
+  /reservoirs:
+    get:
+      summary: List reservoirs
+      tags: [Reservoirs]
+      security:
+        - apiKey: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Paginated list of reservoirs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIResponse'
+        '401':
+          description: Unauthorized
+
+  /reservoirs/{slug}:
+    get:
+      summary: Get reservoir detail
+      tags: [Reservoirs]
+      security:
+        - apiKey: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Reservoir detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIResponse'
+        '404':
+          description: Reservoir not found
+
+  /reservoirs/{slug}/readings:
+    get:
+      summary: Get reservoir time-series readings
+      tags: [Reservoirs]
+      security:
+        - apiKey: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - name: since
+          in: query
+          schema: { type: string, format: date }
+        - name: until
+          in: query
+          schema: { type: string, format: date }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, default: 30 }
+      responses:
+        '200':
+          description: Paginated time-series readings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIResponse'
+        '404':
+          description: Reservoir not found
+
+  /basins:
+    get:
+      summary: List basins
+      tags: [Basins]
+      security:
+        - apiKey: []
+      responses:
+        '200':
+          description: List of basins
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIResponse'
+
+  /basins/{slug}:
+    get:
+      summary: Get basin detail
+      tags: [Basins]
+      security:
+        - apiKey: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Basin detail
+        '404':
+          description: Basin not found
+
+  /rankings/reservoirs:
+    get:
+      summary: Reservoir rankings
+      tags: [Rankings]
+      security:
+        - apiKey: []
+      parameters:
+        - name: metric
+          in: query
+          schema: { type: string, enum: [fullest, emptiest], default: fullest }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 10 }
+      responses:
+        '200':
+          description: Ranked list of reservoirs
+
+  /compare:
+    get:
+      summary: Compare multiple reservoirs
+      tags: [Comparator]
+      security:
+        - apiKey: []
+      parameters:
+        - name: reservoir
+          in: query
+          required: true
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
+        - name: since
+          in: query
+          schema: { type: string, format: date }
+        - name: until
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Aligned time-series for comparison
+        '400':
+          description: Bad request (e.g., no reservoirs specified)
+
+  /data-quality:
+    get:
+      summary: Data quality report
+      tags: [Data Quality]
+      security:
+        - apiKey: []
+      responses:
+        '200':
+          description: Data quality summary
+
+components:
+  schemas:
+    APIResponse:
+      type: object
+      properties:
+        data:
+          type: object
+        meta:
+          $ref: '#/components/schemas/Meta'
+        error:
+          $ref: '#/components/schemas/APIError'
+        lineage:
+          $ref: '#/components/schemas/Lineage'
+
+    Meta:
+      type: object
+      properties:
+        page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+        total_pages: { type: integer }
+
+    APIError:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+      required: [code, message]
+
+    Lineage:
+      type: object
+      properties:
+        source: { type: string }
+        licence: { type: string }
+        attribution: { type: string }
+        fetched_at: { type: string, format: date-time }
+      required: [source, licence, attribution]
+
+    ReservoirSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        external_id: { type: string }
+        basin_name: { type: string }
+        province_name: { type: string }
+        capacity_hm3: { type: number }
+        latest_fill_pct: { type: number }
+
+    ReservoirDetail:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        external_id: { type: string }
+        basin_name: { type: string }
+        province_name: { type: string }
+        capacity_hm3: { type: number }
+        latest_volume_hm3: { type: number }
+        latest_fill_pct: { type: number }
+        dam_name: { type: string }
+
+    Reading:
+      type: object
+      properties:
+        observed_at: { type: string, format: date }
+        volume_hm3: { type: number }
+        capacity_hm3: { type: number }
+        fill_pct: { type: number }
+        weekly_variation_hm3: { type: number }
+        is_provisional: { type: boolean }
+
+    SourceResponse:
+      type: object
+      properties:
+        name: { type: string }
+        organism: { type: string }
+        licence: { type: string }
+        attribution: { type: string }
+        url: { type: string }
+
+    BasinResponse:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        code: { type: string }
+
+    RankingItem:
+      type: object
+      properties:
+        rank: { type: integer }
+        reservoir_id: { type: integer }
+        name: { type: string }
+        value: { type: number }
+        metric: { type: string }
+
+    DataQualityReport:
+      type: object
+      properties:
+        total_reservoirs: { type: integer }
+        reservoirs_with_readings: { type: integer }
+        latest_reading_date: { type: string, format: date }
+        oldest_reading_date: { type: string, format: date }
+        provisional_count: { type: integer }
+        official_count: { type: integer }
+
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
