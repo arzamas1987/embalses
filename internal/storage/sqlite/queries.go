@@ -17,6 +17,8 @@ type ReservoirSummary struct {
 	ProvinceName  string  `json:"province_name,omitempty"`
 	CapacityHM3   float64 `json:"capacity_hm3,omitempty"`
 	LatestFillPct float64 `json:"latest_fill_pct,omitempty"`
+	Latitude      float64 `json:"latitude,omitempty"`
+	Longitude     float64 `json:"longitude,omitempty"`
 }
 
 // ReservoirDetail mirrors the v1 detail type.
@@ -124,7 +126,9 @@ func QueryReservoirs(db *sql.DB, offset, limit int) ([]ReservoirSummary, int, er
 				WHERE reservoir_id = r.id
 				ORDER BY observed_at DESC
 				LIMIT 1
-			) AS latest_fill_pct
+			) AS latest_fill_pct,
+			COALESCE(r.latitude, d.latitude) AS latitude,
+			COALESCE(r.longitude, d.longitude) AS longitude
 		FROM reservoirs r
 		LEFT JOIN basins b ON r.basin_id = b.id
 		LEFT JOIN provinces p ON r.province_id = p.id
@@ -141,7 +145,7 @@ func QueryReservoirs(db *sql.DB, offset, limit int) ([]ReservoirSummary, int, er
 	for rows.Next() {
 		var rs ReservoirSummary
 		var fillPct sql.NullFloat64
-		if err := rows.Scan(&rs.ID, &rs.Name, &rs.Slug, &rs.ExternalID, &rs.BasinName, &rs.ProvinceName, &rs.CapacityHM3, &fillPct); err != nil {
+		if err := rows.Scan(&rs.ID, &rs.Name, &rs.Slug, &rs.ExternalID, &rs.BasinName, &rs.ProvinceName, &rs.CapacityHM3, &fillPct, &rs.Latitude, &rs.Longitude); err != nil {
 			return nil, 0, err
 		}
 		if fillPct.Valid {

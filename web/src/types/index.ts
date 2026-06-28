@@ -32,6 +32,8 @@ export interface ReservoirSummary {
   province_name?: string;
   capacity_hm3?: number;
   latest_fill_pct?: number;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface ReservoirDetail {

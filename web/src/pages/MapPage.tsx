@@ -63,8 +63,9 @@ export default function MapPage() {
     markers.forEach((m) => m.remove())
 
     reservoirs.forEach((r) => {
-      const lng = -3 + (Math.random() - 0.5) * 10
-      const lat = 40 + (Math.random() - 0.5) * 8
+      const lng = r.longitude ?? 0
+      const lat = r.latitude ?? 0
+      if (lng === 0 && lat === 0) return
       const fillPct = r.latest_fill_pct ?? 0
       const color = getFillColor(fillPct)
 
