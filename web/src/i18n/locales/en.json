@@ -1,0 +1,82 @@
+{
+  "appName": "Embalses",
+  "loading": "Loading...",
+  "error": "Error",
+  "retry": "Retry",
+  "notFound": "Not found",
+  "nav": {
+    "home": "Home",
+    "map": "Map",
+    "reservoirs": "Reservoirs",
+    "compare": "Compare",
+    "basins": "Basins",
+    "sources": "Sources",
+    "dataQuality": "Data Quality",
+    "settings": "Settings"
+  },
+  "home": {
+    "title": "Spanish Reservoir Status",
+    "subtitle": "Official MITECO data in real time",
+    "kpi": {
+      "totalReservoirs": "Total reservoirs",
+      "avgFill": "Average fill",
+      "totalCapacity": "Total capacity",
+      "totalStored": "Total stored",
+      "latestUpdate": "Latest update"
+    },
+    "rankings": {
+      "fullest": "Fullest",
+      "emptiest": "Emptiest",
+      "viewAll": "View all"
+    }
+  },
+  "map": {
+    "title": "Reservoir Map",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out"
+  },
+  "reservoir": {
+    "detail": "Reservoir detail",
+    "capacity": "Capacity",
+    "volume": "Current volume",
+    "fillPercent": "Fill percentage",
+    "change": "Weekly change",
+    "basin": "Basin",
+    "province": "Province",
+    "dam": "Dam",
+    "historicalChart": "Historical levels",
+    "date": "Date",
+    "volume_hm3": "Volume (hm³)",
+    "fill_pct": "% Fill"
+  },
+  "comparator": {
+    "title": "Reservoir Comparator",
+    "selectReservoirs": "Select reservoirs to compare",
+    "maxReservoirs": "Maximum 5 reservoirs",
+    "add": "Add",
+    "remove": "Remove",
+    "metric": "Metric",
+    "timeRange": "Time range"
+  },
+  "sources": {
+    "title": "Data Sources",
+    "attribution": "Attribution",
+    "licence": "Licence",
+    "organism": "Organism"
+  },
+  "dataQuality": {
+    "title": "Data Quality",
+    "totalReservoirs": "Total reservoirs",
+    "withReadings": "With readings",
+    "latestReading": "Latest reading",
+    "oldestReading": "Oldest reading",
+    "provisional": "Provisional",
+    "official": "Official"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "spanish": "Spanish",
+    "english": "English"
+  }
+}

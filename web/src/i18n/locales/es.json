@@ -1,0 +1,82 @@
+{
+  "appName": "Embalses",
+  "loading": "Cargando...",
+  "error": "Error",
+  "retry": "Reintentar",
+  "notFound": "No encontrado",
+  "nav": {
+    "home": "Inicio",
+    "map": "Mapa",
+    "reservoirs": "Embalses",
+    "compare": "Comparar",
+    "basins": "Cuencas",
+    "sources": "Fuentes",
+    "dataQuality": "Calidad de datos",
+    "settings": "Ajustes"
+  },
+  "home": {
+    "title": "Estado de los Embalses en España",
+    "subtitle": "Datos oficiales del MITECO en tiempo real",
+    "kpi": {
+      "totalReservoirs": "Embalses totales",
+      "avgFill": "Media de llenado",
+      "totalCapacity": "Capacidad total",
+      "totalStored": "Almacenado",
+      "latestUpdate": "Última actualización"
+    },
+    "rankings": {
+      "fullest": "Más llenos",
+      "emptiest": "Más vacíos",
+      "viewAll": "Ver todos"
+    }
+  },
+  "map": {
+    "title": "Mapa de Embalses",
+    "zoomIn": "Acercar",
+    "zoomOut": "Alejar"
+  },
+  "reservoir": {
+    "detail": "Detalle del embalse",
+    "capacity": "Capacidad",
+    "volume": "Volumen actual",
+    "fillPercent": "Porcentaje de llenado",
+    "change": "Variación semanal",
+    "basin": "Cuenca",
+    "province": "Provincia",
+    "dam": "Presa",
+    "historicalChart": "Histórico de niveles",
+    "date": "Fecha",
+    "volume_hm3": "Volumen (hm³)",
+    "fill_pct": "% Llenado"
+  },
+  "comparator": {
+    "title": "Comparador de Embalses",
+    "selectReservoirs": "Selecciona embalses para comparar",
+    "maxReservoirs": "Máximo 5 embalses",
+    "add": "Añadir",
+    "remove": "Quitar",
+    "metric": "Métrica",
+    "timeRange": "Rango de tiempo"
+  },
+  "sources": {
+    "title": "Fuentes de Datos",
+    "attribution": "Atribución",
+    "licence": "Licencia",
+    "organism": "Organismo"
+  },
+  "dataQuality": {
+    "title": "Calidad de Datos",
+    "totalReservoirs": "Embalses totales",
+    "withReadings": "Con lecturas",
+    "latestReading": "Última lectura",
+    "oldestReading": "Lectura más antigua",
+    "provisional": "Provisionales",
+    "official": "Oficiales"
+  },
+  "settings": {
+    "title": "Ajustes",
+    "language": "Idioma",
+    "spanish": "Español",
+    "english": "Inglés"
+  }
+}

@@ -1,41 +1,38 @@
-import { useEffect, useState } from 'react'
-import './App.css'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClient } from './api/client'
+import './i18n'
+import Layout from './components/Layout'
+import Home from './pages/Home'
+import MapPage from './pages/MapPage'
+import Reservoirs from './pages/Reservoirs'
+import ReservoirDetail from './pages/ReservoirDetail'
+import Comparator from './pages/Comparator'
+import Basins from './pages/Basins'
+import Sources from './pages/Sources'
+import DataQuality from './pages/DataQuality'
+import Settings from './pages/Settings'
+import NotFound from './pages/NotFound'
 
-function App() {
-  const [backendStatus, setBackendStatus] = useState<string>('checking...')
-
-  useEffect(() => {
-    fetch('/api/healthz')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.status === 'ok') {
-          setBackendStatus('connected')
-        } else {
-          setBackendStatus('unhealthy')
-        }
-      })
-      .catch(() => setBackendStatus('unreachable'))
-  }, [])
-
+export default function App() {
   return (
-    <div className="app">
-      <header>
-        <h1>Embalses MVP</h1>
-        <p className="subtitle">Spanish reservoir data platform</p>
-      </header>
-      <main>
-        <div className="status-card">
-          <h2>Backend Status</h2>
-          <p className={`status status-${backendStatus}`}>
-            {backendStatus === 'connected' ? '✅ Connected' : backendStatus === 'unhealthy' ? '⚠️ Unhealthy' : '❌ Unreachable'}
-          </p>
-        </div>
-      </main>
-      <footer>
-        <p>Local-first MVP · Phase 0</p>
-      </footer>
-    </div>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/mapa" element={<MapPage />} />
+            <Route path="/embalses" element={<Reservoirs />} />
+            <Route path="/embalses/:slug" element={<ReservoirDetail />} />
+            <Route path="/comparar" element={<Comparator />} />
+            <Route path="/cuencas" element={<Basins />} />
+            <Route path="/fuentes" element={<Sources />} />
+            <Route path="/calidad-datos" element={<DataQuality />} />
+            <Route path="/ajustes" element={<Settings />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </Layout>
+      </BrowserRouter>
+    </QueryClientProvider>
   )
 }
-
-export default App
