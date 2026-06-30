@@ -1,11 +1,15 @@
 # Reservoirs excluded from the MVP public view
 
-**MVP rule:** Only reservoirs with recent MITECO (Ministerio para la Transición Ecológica) public data are shown.
-A reservoir is excluded when it has **no MITECO reading** or its latest MITECO reading is older than **6 months**.
+**MVP rule:** Only reservoirs with recent, non-zero MITECO (Ministerio para la Transición Ecológica) public data are shown.
+A reservoir is excluded when it has:
 
-- Total excluded: **143**
+- **No MITECO reading**, or
+- **Latest MITECO reading older than 6 months**, or
+- **Latest MITECO reading at 0% fill**.
+
+- Total excluded: **144**
 - Total in database: **517**
-- Cutoff date: 2025-12-30
+- Cutoff date: 2026-01-01
 
 ## By basin
 
@@ -158,10 +162,11 @@ A reservoir is excluded when it has **no MITECO reading** or its latest MITECO r
 |-----------|------|---------------|-------------------|----------------|--------|
 | Embalse de GORCH-BLAU | embalse-de-gorch-blau | - | - | 0 | No data |
 
-### JUCAR (2)
+### JUCAR (3)
 
 | Reservoir | Slug | Latest MITECO | Latest any source | Total readings | Status |
 |-----------|------|---------------|-------------------|----------------|--------|
+| Embalse de ALGAR | embalse-de-algar | 2026-06-23 | 2026-06-30 | 869 | Zero fill |
 | Embalse de El REGAJO | embalse-de-el-regajo | - | - | 0 | No data |
 | Embalse de TOUS | embalse-de-tous | - | 2026-06-30 | 1 | No data |
 
@@ -229,6 +234,5 @@ A reservoir is excluded when it has **no MITECO reading** or its latest MITECO r
 
 ## What happens to these reservoirs?
 
-They remain in the database but are **hidden from the public UI/API list**, rankings, and basin summaries.
-Direct detail URLs may still resolve for now, but they are not linked from the official pages.
+They remain in the database but are **hidden from the public UI/API list**, rankings, basin summaries, and detail pages.
 In later releases we can re-enable them once a maintained public source (regional basin authority, MITECO weekly bulletin, etc.) provides current data.

@@ -112,14 +112,22 @@ type Lineage struct {
 }
 
 // recentMitecoReservoirs filters to reservoirs whose latest MITECO reading is
-// within the last 6 months. The MVP public view relies only on MITECO data.
+// within the last 6 months and has a non-zero fill percentage. The MVP public
+// view relies only on current MITECO data; zero-fill or outdated reservoirs
+// are tracked separately in docs/reservoirs-excluded-from-mvp.md.
 const recentMitecoReservoirs = `
 JOIN (
-	SELECT DISTINCT r.id
-	FROM reservoirs r
-	JOIN readings rd ON rd.reservoir_id = r.id
-	JOIN sources s ON s.id = rd.source_id
-	WHERE s.name = 'MITECO' AND rd.observed_at >= date('now', '-6 months')
+	SELECT rd.reservoir_id AS id
+	FROM (
+		SELECT rd.reservoir_id, rd.observed_at, rd.fill_pct,
+		       ROW_NUMBER() OVER (PARTITION BY rd.reservoir_id ORDER BY rd.observed_at DESC) AS rn
+		FROM readings rd
+		JOIN sources s ON s.id = rd.source_id
+		WHERE s.name = 'MITECO'
+	) rd
+	WHERE rd.rn = 1
+	  AND rd.observed_at >= date('now', '-6 months')
+	  AND rd.fill_pct > 0
 ) miteco ON miteco.id = r.id
 `
 
