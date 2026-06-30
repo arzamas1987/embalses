@@ -210,7 +210,7 @@ jobs:
       # ── Start API ──
       - name: Start SQLite API (background)
         run: |
-          ./bin/api-sqlite &
+          nohup ./bin/api-sqlite > api.log 2>&1 &
           echo "API_PID=$!" >> $GITHUB_ENV
 
       - name: Wait for API health
@@ -225,13 +225,15 @@ jobs:
             sleep 1
           done
           echo "ERROR: API did not become healthy"
+          echo "--- API log ---"
+          cat api.log || true
           exit 1
 
       # ── Start frontend preview ──
       - name: Start frontend preview (background)
         working-directory: ./web
         run: |
-          npm run preview &
+          nohup npx vite preview --port 4174 --host > preview.log 2>&1 &
           echo "WEB_PID=$!" >> $GITHUB_ENV
 
       - name: Wait for frontend
@@ -246,6 +248,8 @@ jobs:
             sleep 1
           done
           echo "ERROR: Frontend did not become ready"
+          echo "--- Preview log ---"
+          cat web/preview.log || true
           exit 1
 
       # ── Run Playwright tests ──
