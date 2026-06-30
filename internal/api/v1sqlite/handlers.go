@@ -2,6 +2,7 @@ package v1sqlite
 
 import (
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -146,19 +147,30 @@ func (h *Handler) ListBasins(w http.ResponseWriter, r *http.Request) {
 	v1.WriteJSON(w, http.StatusOK, v1.APIResponse{Data: basins, Lineage: toV1Lineage(lineage)})
 }
 
-// GetBasin returns a single basin by slug.
+// GetBasinSummary returns aggregated fill statistics for all basins.
+func (h *Handler) GetBasinSummary(w http.ResponseWriter, r *http.Request) {
+	summaries, err := sqlite.QueryBasinSummaries(h.DB)
+	if err != nil {
+		v1.WriteError(w, http.StatusInternalServerError, "query_error", err.Error())
+		return
+	}
+	lineage, _ := sqlite.QueryLineage(h.DB, "MITECO")
+	v1.WriteJSON(w, http.StatusOK, v1.APIResponse{Data: summaries, Lineage: toV1Lineage(lineage)})
+}
+
+// GetBasin returns a single basin by slug with aggregate data and reservoirs.
 func (h *Handler) GetBasin(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
-	basin, err := sqlite.QueryBasinBySlug(h.DB, slug)
+	basin, err := sqlite.QueryBasinDetail(h.DB, slug)
 	if err != nil {
-		if strings.Contains(err.Error(), "no rows") {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no rows") {
 			v1.WriteError(w, http.StatusNotFound, "not_found", fmt.Sprintf("Basin '%s' not found", slug))
 			return
 		}
 		v1.WriteError(w, http.StatusInternalServerError, "query_error", err.Error())
 		return
 	}
-	lineage, _ := sqlite.QueryLineage(h.DB, "IGN")
+	lineage, _ := sqlite.QueryLineage(h.DB, "MITECO")
 	v1.WriteItem(w, basin, toV1Lineage(lineage))
 }
 
@@ -258,4 +270,70 @@ func v1IntQueryParam(r *http.Request, name string, fallback int) int {
 		return fallback
 	}
 	return i
+}
+
+// ImportReadings accepts a CSV upload with columns:
+//
+//	reservoir_slug,observed_at,volume_hm3,capacity_hm3,fill_pct
+//
+// and upserts the readings into the database under source MANUAL.
+func (h *Handler) ImportReadings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		v1.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST required")
+		return
+	}
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		v1.WriteError(w, http.StatusBadRequest, "missing_file", "CSV file is required (form field 'file')")
+		return
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.Comma = ','
+	reader.LazyQuotes = true
+
+	header, err := reader.Read()
+	if err != nil {
+		v1.WriteError(w, http.StatusBadRequest, "csv_error", fmt.Sprintf("read header: %v", err))
+		return
+	}
+	colIdx := make(map[string]int, len(header))
+	for i, h := range header {
+		colIdx[strings.TrimSpace(strings.ToLower(h))] = i
+	}
+	required := []string{"reservoir_slug", "observed_at"}
+	for _, col := range required {
+		if _, ok := colIdx[col]; !ok {
+			v1.WriteError(w, http.StatusBadRequest, "missing_column", fmt.Sprintf("required column missing: %s", col))
+			return
+		}
+	}
+
+	// Accept either volume+capacity or explicit fill_pct.
+	hasVolume := false
+	hasCapacity := false
+	hasFillPct := false
+	if _, ok := colIdx["volume_hm3"]; ok {
+		hasVolume = true
+	}
+	if _, ok := colIdx["capacity_hm3"]; ok {
+		hasCapacity = true
+	}
+	if _, ok := colIdx["fill_pct"]; ok {
+		hasFillPct = true
+	}
+	if !hasFillPct && !(hasVolume && hasCapacity) {
+		v1.WriteError(w, http.StatusBadRequest, "missing_columns", "provide either fill_pct or both volume_hm3 and capacity_hm3")
+		return
+	}
+
+	count, err := sqlite.ImportReadingsCSV(h.DB, reader, colIdx)
+	if err != nil {
+		v1.WriteError(w, http.StatusInternalServerError, "import_error", err.Error())
+		return
+	}
+
+	v1.WriteJSON(w, http.StatusOK, v1.APIResponse{Data: map[string]int{"imported": count}})
 }

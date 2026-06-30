@@ -170,6 +170,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <li>
                   <Link to="/ajustes" className="hover:text-white transition-colors">{t('nav.settings')}</Link>
                 </li>
+                <li>
+                  <Link to="/admin/importar" className="hover:text-white transition-colors">Importar datos</Link>
+                </li>
               </ul>
             </div>
           </div>

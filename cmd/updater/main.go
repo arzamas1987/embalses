@@ -12,17 +12,23 @@ import (
 
 func main() {
 	var (
-		dbPath       = flag.String("db", "data/embalses.db", "Path to SQLite database")
-		fullImport   = flag.Bool("full", false, "Run full historical import (one-time)")
-		geoOnly      = flag.Bool("geo-only", false, "Import only GeoJSON fixtures (GPS + metadata)")
-		seedReadings = flag.Bool("seed-readings", false, "Seed synthetic 6-month readings")
+		dbPath         = flag.String("db", "data/embalses.db", "Path to SQLite database")
+		fullImport     = flag.Bool("full", false, "Run full historical import (one-time)")
+		mitecoImport   = flag.Bool("miteco", false, "Import MITECO historical reservoir data (BD-Embales.zip)")
+		regionalImport = flag.Bool("regional", false, "Import regional open-data sources (ACA, CHD, CHJ)")
+		geoOnly        = flag.Bool("geo-only", false, "Import only GeoJSON fixtures (GPS + metadata)")
+		seedReadings   = flag.Bool("seed-readings", false, "Seed synthetic 6-month readings")
 	)
 	flag.Parse()
 
 	log.Println("=== Embalses Updater ===")
 	log.Printf("Database: %s", *dbPath)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	timeout := 30 * time.Minute
+	if *mitecoImport || *fullImport || *regionalImport {
+		timeout = 2 * time.Hour
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	// Open or create database
@@ -57,15 +63,21 @@ func main() {
 	}
 
 	// ── MITECO Historical Data (one-time full import) ──
-	if *fullImport {
+	if *mitecoImport || *fullImport {
 		log.Println("--- Fetching MITECO historical data ---")
 		if err := fetchMITECOHistorical(db.DB); err != nil {
-			log.Printf("MITECO historical fetch (non-fatal): %v", err)
-			log.Println("NOTE: MITECO ingestion requires manual download of BD-Embalses_1988-2022.zip")
-			log.Println("      Place the unzipped Excel files in data/raw/miteco/ and re-run with -full")
-		} else {
-			log.Println("MITECO historical data imported.")
+			log.Fatalf("MITECO historical fetch: %v", err)
 		}
+		log.Println("MITECO historical data imported.")
+	}
+
+	// ── Regional open-data sources (ACA, CHD, CHJ) ──
+	if *regionalImport || *fullImport {
+		log.Println("--- Fetching regional open-data sources ---")
+		if err := fetchRegional(db.DB); err != nil {
+			log.Fatalf("Regional fetch: %v", err)
+		}
+		log.Println("Regional data imported.")
 	}
 
 	// ── MITECO Weekly Updates (incremental) ──

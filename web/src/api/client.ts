@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query'
-import type { APIResponse, Source, ReservoirSummary, ReservoirDetail, Reading, Basin, RankingItem, DataQualityReport, QueryIntent } from '../types'
+import type { APIResponse, Source, ReservoirSummary, ReservoirDetail, Reading, Basin, BasinSummary, BasinDetail, RankingItem, DataQualityReport, QueryIntent } from '../types'
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,12 +51,45 @@ export async function getBasins() {
   return fetchAPI<APIResponse<Basin[]>>('/v1/basins')
 }
 
+export async function getBasinSummary() {
+  return fetchAPI<APIResponse<BasinSummary[]>>('/v1/basins/summary')
+}
+
+export async function getBasinDetail(slug: string) {
+  return fetchAPI<APIResponse<BasinDetail>>(`/v1/basins/${encodeURIComponent(slug)}`)
+}
+
 export async function getRankings(metric = 'fullest', limit = 10) {
   return fetchAPI<APIResponse<RankingItem[]>>(`/v1/rankings/reservoirs?metric=${metric}&limit=${limit}`)
 }
 
 export async function getDataQuality() {
   return fetchAPI<APIResponse<DataQualityReport>>('/v1/data-quality')
+}
+
+export async function importReadingsCSV(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch(`${API_BASE}/admin/readings/import`, {
+    method: 'POST',
+    headers: {
+      'X-API-Key': API_KEY,
+    },
+    body: formData,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: { message: res.statusText } }))
+    throw new Error(err.error?.message || `HTTP ${res.status}`)
+  }
+  return res.json() as Promise<APIResponse<{ imported: number }>>
+}
+
+export async function getComparatorData(slugs: string[], since?: string, until?: string) {
+  const params = new URLSearchParams()
+  slugs.forEach((s) => params.append('reservoir', s))
+  if (since) params.set('since', since)
+  if (until) params.set('until', until)
+  return fetchAPI<APIResponse<Record<string, Reading[]>>>(`/v1/compare?${params.toString()}`)
 }
 
 export async function postQuery(intent: QueryIntent) {

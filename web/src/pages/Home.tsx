@@ -185,7 +185,7 @@ export default function Home() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-[#0f172a] text-sm truncate mb-1">
-                        <Link to={`/embalses/${encodeURIComponent(r.name.toLowerCase().replace(/\s+/g, '-'))}`} className="hover:text-[#003366]">
+                        <Link to={`/embalses/${encodeURIComponent(r.slug)}`} className="hover:text-[#003366]">
                           {r.name}
                         </Link>
                       </div>
@@ -235,7 +235,7 @@ export default function Home() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-[#0f172a] text-sm truncate mb-1">
-                        <Link to={`/embalses/${encodeURIComponent(r.name.toLowerCase().replace(/\s+/g, '-'))}`} className="hover:text-[#003366]">
+                        <Link to={`/embalses/${encodeURIComponent(r.slug)}`} className="hover:text-[#003366]">
                           {r.name}
                         </Link>
                       </div>

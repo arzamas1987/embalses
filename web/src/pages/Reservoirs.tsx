@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { useReservoirs } from '../hooks/useQueries'
+import { useAllReservoirs } from '../hooks/useQueries'
 import type { ReservoirSummary } from '../types'
 
 type SortKey = 'name' | 'basin_name' | 'province_name' | 'latest_fill_pct' | 'capacity_hm3'
@@ -55,7 +55,7 @@ function FillBar({ pct }: { pct: number }) {
 
 export default function Reservoirs() {
   const { t } = useTranslation()
-  const { data, isLoading } = useReservoirs(1, 100)
+  const { data, isLoading } = useAllReservoirs()
   const reservoirs = data?.data as ReservoirSummary[] | undefined
 
   const [search, setSearch] = useState('')
@@ -97,11 +97,11 @@ export default function Reservoirs() {
     return filtered
   }, [reservoirs, search, sortKey, sortDir])
 
-  const SortHeader = ({ label, key }: { label: string; key: SortKey }) => (
-    <th onClick={() => handleSort(key)} className="select-none">
+  const SortHeader = ({ label, sortKey: col }: { label: string; sortKey: SortKey }) => (
+    <th onClick={() => handleSort(col)} className="select-none cursor-pointer hover:bg-[#f8fafc]">
       <div className="flex items-center gap-1.5">
         {label}
-        {sortKey === key && (sortDir === 'asc' ? <SortAscIcon /> : <SortDescIcon />)}
+        {sortKey === col && (sortDir === 'asc' ? <SortAscIcon /> : <SortDescIcon />)}
       </div>
     </th>
   )
@@ -143,11 +143,11 @@ export default function Reservoirs() {
             <table className="gov-table">
               <thead>
                 <tr>
-                  <SortHeader key="name" label={t('reservoir.basin')} />
-                  <SortHeader key="basin_name" label={t('reservoir.basin')} />
-                  <SortHeader key="province_name" label={t('reservoir.province')} />
-                  <SortHeader key="latest_fill_pct" label={t('reservoir.fillPercent')} />
-                  <SortHeader key="capacity_hm3" label={t('reservoir.capacity')} />
+                  <SortHeader sortKey="name" label={t('reservoir.name')} />
+                  <SortHeader sortKey="basin_name" label={t('reservoir.basin')} />
+                  <SortHeader sortKey="province_name" label={t('reservoir.province')} />
+                  <SortHeader sortKey="latest_fill_pct" label={t('reservoir.fillPercent')} />
+                  <SortHeader sortKey="capacity_hm3" label={t('reservoir.capacity')} />
                 </tr>
               </thead>
               <tbody>
@@ -156,12 +156,16 @@ export default function Reservoirs() {
                   return (
                     <tr key={r.id}>
                       <td>
-                        <Link
-                          to={`/embalses/${encodeURIComponent(r.external_id)}`}
-                          className="font-medium text-[#003366] hover:text-[#004a74] hover:underline"
-                        >
-                          {r.name}
-                        </Link>
+                        {r.slug ? (
+                          <Link
+                            to={`/embalses/${encodeURIComponent(r.slug)}`}
+                            className="font-medium text-[#003366] hover:text-[#004a74] hover:underline"
+                          >
+                            {r.name}
+                          </Link>
+                        ) : (
+                          <span className="font-medium text-[#0f172a]">{r.name}</span>
+                        )}
                       </td>
                       <td>{r.basin_name ?? '-'}</td>
                       <td>{r.province_name ?? '-'}</td>

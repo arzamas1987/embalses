@@ -48,7 +48,7 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
-	r.Use(middleware.AllowContentType("application/json"))
+	r.Use(middleware.AllowContentType("application/json", "multipart/form-data"))
 
 	// Public health endpoints
 	r.Get("/healthz", health.Handler("api"))

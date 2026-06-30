@@ -37,6 +37,7 @@
   },
   "reservoir": {
     "detail": "Detalle del embalse",
+    "name": "Embalse",
     "capacity": "Capacidad",
     "volume": "Volumen actual",
     "fillPercent": "Porcentaje de llenado",

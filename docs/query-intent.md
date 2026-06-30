@@ -13,9 +13,24 @@ receives both the results **and** the executed plan for transparency.
 
 ## Architecture
 
-```
-User JSON → Parse → Validate (allow-lists) → Compile (parameterized SQL)
-→ Execute (pgx with $N params) → Return {results, plan}
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'fontFamily': 'Inter, sans-serif' }}%%
+flowchart LR
+    JSON["User JSON"]
+    PARSE["Parse"]
+    VALIDATE["Validate<br/>allow-lists"]
+    COMPILE["Compile<br/>parameterized SQL"]
+    EXECUTE["Execute"]
+    RETURN["Return {results, plan}"]
+
+    JSON --> PARSE --> VALIDATE --> COMPILE --> EXECUTE --> RETURN
+
+    classDef step fill:#45B7D1,stroke:#2C3E50,stroke-width:2px,color:#fff,rx:10,ry:10;
+    classDef io fill:#FFEAA7,stroke:#2C3E50,stroke-width:2px,color:#2C3E50,rx:10,ry:10;
+    classDef default rx:10,ry:10;
+
+    class JSON,RETURN io;
+    class PARSE,VALIDATE,COMPILE,EXECUTE step;
 ```
 
 **No LLM is involved.** The planner is deterministic, fully allow-listed, and

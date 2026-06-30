@@ -25,11 +25,14 @@ func RegisterRoutes(r chi.Router, db *sql.DB) {
 		r.Get("/reservoirs/{slug}/readings", h.GetReservoirReadings)
 
 		r.Get("/basins", h.ListBasins)
+		r.Get("/basins/summary", h.GetBasinSummary)
 		r.Get("/basins/{slug}", h.GetBasin)
 
 		r.Get("/rankings/reservoirs", h.GetRankings)
 		r.Get("/compare", h.CompareReservoirs)
 		r.Get("/data-quality", h.GetDataQuality)
 		r.Post("/query", h.Query)
+
+		r.Post("/admin/readings/import", h.ImportReadings)
 	})
 }

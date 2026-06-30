@@ -9,9 +9,11 @@ import Reservoirs from './pages/Reservoirs'
 import ReservoirDetail from './pages/ReservoirDetail'
 import Comparator from './pages/Comparator'
 import Basins from './pages/Basins'
+import BasinDetail from './pages/BasinDetail'
 import Sources from './pages/Sources'
 import DataQuality from './pages/DataQuality'
 import Settings from './pages/Settings'
+import AdminImport from './pages/AdminImport'
 import NotFound from './pages/NotFound'
 
 export default function App() {
@@ -26,9 +28,11 @@ export default function App() {
             <Route path="/embalses/:slug" element={<ReservoirDetail />} />
             <Route path="/comparar" element={<Comparator />} />
             <Route path="/cuencas" element={<Basins />} />
+            <Route path="/cuencas/:slug" element={<BasinDetail />} />
             <Route path="/fuentes" element={<Sources />} />
             <Route path="/calidad-datos" element={<DataQuality />} />
             <Route path="/ajustes" element={<Settings />} />
+            <Route path="/admin/importar" element={<AdminImport />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Layout>

@@ -1,110 +1,65 @@
 #!/usr/bin/env pwsh
-# stop.ps1 - Stop all Embalses services
+# scripts/stop.ps1 — Stop all Embalses services started by scripts/start.ps1.
 
 $ErrorActionPreference = "Stop"
 
-$repoRoot = "C:\Users\whala\git\embalses"
-$pidFile = "$repoRoot\scripts\.pids"
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$pidFile = Join-Path $PSScriptRoot ".pids"
 
-function Write-Step {
-    param([string]$Message)
-    Write-Host "`n>>> $Message" -ForegroundColor Cyan
-}
-
-function Write-Ok {
-    param([string]$Message)
-    Write-Host "    OK: $Message" -ForegroundColor Green
-}
-
-function Write-Warn {
-    param([string]$Message)
-    Write-Host "    WARN: $Message" -ForegroundColor Yellow
-}
+function Write-Step { param([string]$Message) Write-Host "`n>>> $Message" -ForegroundColor Cyan }
+function Write-Ok   { param([string]$Message) Write-Host "    OK: $Message" -ForegroundColor Green }
+function Write-Warn { param([string]$Message) Write-Host "    WARN: $Message" -ForegroundColor Yellow }
 
 Write-Step "Stopping Embalses services..."
 
-# --- Stop PowerShell background jobs ---
-Write-Step "Stopping background jobs (API + frontend)..."
-$jobs = Get-Job -ErrorAction SilentlyContinue
-if ($jobs) {
-    foreach ($job in $jobs) {
-        Stop-Job $job -ErrorAction SilentlyContinue
-        Remove-Job $job -ErrorAction SilentlyContinue
-        Write-Ok "Stopped job: $($job.Name) (ID: $($job.Id))"
-    }
-} else {
-    Write-Warn "No background jobs found"
-}
-
-# Also stop from PID file if exists
+# --- Stop tracked PowerShell background jobs ---
 if (Test-Path $pidFile) {
+    try {
+        $pids = Get-Content $pidFile | ConvertFrom-Json
+        if ($pids.apiJob) {
+            Stop-Job -Id $pids.apiJob -ErrorAction SilentlyContinue
+            Remove-Job -Id $pids.apiJob -ErrorAction SilentlyContinue
+            Write-Ok "Stopped API background job"
+        }
+        if ($pids.frontendJob) {
+            Stop-Job -Id $pids.frontendJob -ErrorAction SilentlyContinue
+            Remove-Job -Id $pids.frontendJob -ErrorAction SilentlyContinue
+            Write-Ok "Stopped frontend background job"
+        }
+    } catch {
+        Write-Warn "Could not read PID file: $_"
+    }
     Remove-Item $pidFile -Force
     Write-Ok "Removed PID file"
 }
 
-# --- Stop Node processes (vite preview, npm) ---
-Write-Step "Stopping Node.js processes..."
-$nodeProcesses = Get-Process -Name "node" -ErrorAction SilentlyContinue
-if ($nodeProcesses) {
-    foreach ($proc in $nodeProcesses) {
-        try {
-            $proc.Kill()
-            Write-Ok "Stopped node process (PID: $($proc.Id))"
-        } catch {
-            Write-Warn "Could not stop node process PID $($proc.Id): $($_.Exception.Message)"
-        }
-    }
-} else {
-    Write-Warn "No node processes found"
-}
-
-# --- Stop Go processes (API server) ---
-Write-Step "Stopping Go processes..."
-$goProcesses = Get-Process -Name "api" -ErrorAction SilentlyContinue
-if ($goProcesses) {
-    foreach ($proc in $goProcesses) {
-        try {
-            $proc.Kill()
-            Write-Ok "Stopped api process (PID: $($proc.Id))"
-        } catch {
-            Write-Warn "Could not stop api process PID $($proc.Id): $($_.Exception.Message)"
-        }
-    }
-}
-
-# Also try killing go.exe if it was compiled
-$goProcs = Get-Process -Name "go" -ErrorAction SilentlyContinue
-if ($goProcs) {
-    foreach ($proc in $goProcs) {
-        try {
-            $proc.Kill()
-            Write-Ok "Stopped go process (PID: $($proc.Id))"
-        } catch {
-            Write-Warn "Could not stop go process PID $($proc.Id): $($_.Exception.Message)"
-        }
-    }
-}
-
-# --- Stop Docker containers ---
-Write-Step "Stopping Docker containers..."
-$hasDocker = $null -ne (Get-Command docker -ErrorAction SilentlyContinue)
-if ($hasDocker) {
-    Push-Location $repoRoot
+# --- Stop Node.js / Vite processes ---
+Write-Step "Stopping Node.js / Vite processes..."
+Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object {
+    $_.CommandLine -like "*vite*" -or $_.Path -like "*web*"
+} | ForEach-Object {
     try {
-        docker compose down 2>$null
-        Write-Ok "Docker containers stopped"
+        $_.Kill()
+        Write-Ok "Stopped node process (PID: $($_.Id))"
     } catch {
-        Write-Warn "Docker compose down failed or containers were already stopped"
-    } finally {
-        Pop-Location
+        Write-Warn "Could not stop node process PID $($_.Id): $($_.Exception.Message)"
     }
-} else {
-    Write-Warn "Docker not found, skipping container cleanup"
 }
 
-# --- Clean up any remaining port listeners ---
-Write-Step "Checking for port conflicts..."
-$portsToCheck = @(8080, 4174, 5432)
+# --- Stop Go API process ---
+Write-Step "Stopping SQLite API processes..."
+Get-Process -Name "api-sqlite" -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+        $_.Kill()
+        Write-Ok "Stopped api-sqlite process (PID: $($_.Id))"
+    } catch {
+        Write-Warn "Could not stop api-sqlite process PID $($_.Id): $($_.Exception.Message)"
+    }
+}
+
+# --- Check for remaining port listeners ---
+Write-Step "Checking for remaining port listeners..."
+$portsToCheck = @(8080, 8082, 5173, 5174)
 foreach ($port in $portsToCheck) {
     $listener = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($listener) {
@@ -118,5 +73,5 @@ foreach ($port in $portsToCheck) {
 Write-Host "`n========================================" -ForegroundColor Green
 Write-Host "All Embalses services stopped." -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "`nTo restart everything, run:"
-Write-Host "  $repoRoot\scripts\start.ps1"
+Write-Host "To restart everything, run:"
+Write-Host "  .\scripts\start.ps1"
