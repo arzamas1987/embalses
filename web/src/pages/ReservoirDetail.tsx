@@ -67,11 +67,14 @@ export default function ReservoirDetail() {
   const reservoir = resData?.data as ReservoirDetail | undefined
   const readings = readData?.data as Reading[] | undefined
 
-  const chartData = readings?.map((r) => ({
-    date: r.observed_at,
-    fill_pct: r.fill_pct,
-    volume_hm3: r.volume_hm3,
-  })) ?? []
+  const chartData = readings
+    ?.map((r) => ({
+      date: r.observed_at,
+      fill_pct: r.fill_pct,
+      volume_hm3: r.volume_hm3,
+    }))
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date)) ?? []
 
   const fillPct = reservoir?.latest_fill_pct
   const fillColor = fillPct != null ? getFillColor(fillPct) : '#94a3b8'
@@ -114,7 +117,7 @@ export default function ReservoirDetail() {
           <BackIcon />
           Volver al listado
         </Link>
-        <h1 className="text-2xl sm:text-3xl font-bold text-[#0f172a]">
+        <h1 data-testid="reservoir-detail-name" className="text-2xl sm:text-3xl font-bold text-[#0f172a]">
           {resLoading ? t('loading') : reservoir?.name ?? t('notFound')}
         </h1>
         {reservoir && (
@@ -250,7 +253,7 @@ export default function ReservoirDetail() {
       </div>
 
       {readings && readings.length > 0 && (
-        <div className="mt-6 gov-card p-5">
+        <div data-testid="readings-table" className="mt-6 gov-card p-5">
           <h3 className="text-lg font-semibold text-[#0f172a] mb-4">Últimas lecturas</h3>
           <div className="overflow-x-auto">
             <table className="gov-table">

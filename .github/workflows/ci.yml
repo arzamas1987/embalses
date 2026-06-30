@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, mvp/*]
+    branches: [main, mvp/*, phase/*]
   pull_request:
     branches: [main]
 
@@ -151,6 +151,128 @@ jobs:
           echo "License gate placeholder: npm licence check"
           # npx license-checker --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;MPL-2.0;PostgreSQL'
           echo "TODO: enable licence-checker after adding more frontend dependencies"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # E2E SQLite + Playwright — tests the Ubuntu deployment target end-to-end
+  # using the SQLite-backed API and a built Vite frontend. Seeds deterministic
+  # synthetic MITECO readings and asserts both API responses and rendered UI.
+  # ──────────────────────────────────────────────────────────────────────────
+  e2e-sqlite-ubuntu:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: data/embalses.db
+      API_ADDR: :8082
+      API_KEY: test-key-123
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Go toolchain ──
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Go build (SQLite API + updater)
+        run: |
+          go build -o bin/api-sqlite ./cmd/api-sqlite
+          go build -o bin/updater ./cmd/updater
+
+      # ── Seed SQLite database ──
+      - name: Import GeoJSON fixtures
+        run: ./bin/updater -db data/embalses.db -geo-only
+
+      - name: Seed synthetic MITECO readings
+        run: ./bin/updater -db data/embalses.db -seed-readings
+
+      # ── Node toolchain ──
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./web
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: ./web
+        run: npx playwright install --with-deps chromium
+
+      # ── Build frontend ──
+      - name: Build frontend
+        working-directory: ./web
+        run: npm run build
+        env:
+          VITE_API_KEY: ${{ env.API_KEY }}
+
+      # ── Start API ──
+      - name: Start SQLite API (background)
+        run: |
+          ./bin/api-sqlite &
+          echo "API_PID=$!" >> $GITHUB_ENV
+
+      - name: Wait for API health
+        run: |
+          for i in {1..20}; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8082/healthz || true)
+            if [ "$code" = "200" ]; then
+              echo "API ready on :8082"
+              exit 0
+            fi
+            echo "API not ready yet (attempt $i)..."
+            sleep 1
+          done
+          echo "ERROR: API did not become healthy"
+          exit 1
+
+      # ── Start frontend preview ──
+      - name: Start frontend preview (background)
+        working-directory: ./web
+        run: |
+          npm run preview &
+          echo "WEB_PID=$!" >> $GITHUB_ENV
+
+      - name: Wait for frontend
+        run: |
+          for i in {1..20}; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4174/ || true)
+            if [ "$code" = "200" ]; then
+              echo "Frontend ready on :4174"
+              exit 0
+            fi
+            echo "Frontend not ready yet (attempt $i)..."
+            sleep 1
+          done
+          echo "ERROR: Frontend did not become ready"
+          exit 1
+
+      # ── Run Playwright tests ──
+      - name: Run E2E tests
+        working-directory: ./web
+        run: npm run test:e2e:ci
+        env:
+          API_URL: http://localhost:8082
+          API_KEY: ${{ env.API_KEY }}
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/test-results/
+          retention-days: 7
+
+      # ── Cleanup ──
+      - name: Stop services
+        if: always()
+        run: |
+          echo "Stopping API and frontend..."
+          kill $API_PID 2>/dev/null || true
+          kill $WEB_PID 2>/dev/null || true
+          sleep 1
+          echo "Done."
 
   secrets-check:
     runs-on: ubuntu-latest

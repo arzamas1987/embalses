@@ -66,11 +66,12 @@ export default function Basins() {
           {t('loading')}
         </div>
       ) : (
-        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+        <div data-testid="basins-grid" className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
           {basins?.map((b) => {
             const pct = Math.round(b.avg_fill_pct)
             return (
               <Link
+                data-testid="basin-card"
                 key={b.id}
                 to={`/cuencas/${encodeURIComponent(b.name)}`}
                 className="gov-card p-5 hover:shadow-md transition-shadow group"

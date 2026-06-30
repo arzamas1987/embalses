@@ -140,7 +140,7 @@ export default function Reservoirs() {
       ) : (
         <div className="gov-card overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="gov-table">
+            <table data-testid="reservoirs-table" className="gov-table">
               <thead>
                 <tr>
                   <SortHeader sortKey="name" label={t('reservoir.name')} />
@@ -154,7 +154,7 @@ export default function Reservoirs() {
                 {sorted.map((r) => {
                   const pct = r.latest_fill_pct
                   return (
-                    <tr key={r.id}>
+                    <tr data-testid="reservoir-row" key={r.id}>
                       <td>
                         {r.slug ? (
                           <Link
