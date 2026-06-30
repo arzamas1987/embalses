@@ -67,6 +67,7 @@ export default function ReservoirDetail() {
   const reservoir = resData?.data as ReservoirDetail | undefined
   const readings = readData?.data as Reading[] | undefined
 
+  // Chart expects oldest → newest (left → right); API returns newest first.
   const chartData = readings
     ?.map((r) => ({
       date: r.observed_at,
