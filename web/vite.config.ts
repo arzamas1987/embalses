@@ -8,7 +8,15 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://api:8080',
+        target: 'http://localhost:8082',
+        changeOrigin: true,
+      },
+    },
+  },
+  preview: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8082',
         changeOrigin: true,
       },
     },
@@ -16,5 +24,6 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**'],
   },
 })

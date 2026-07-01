@@ -28,10 +28,13 @@ export interface ReservoirSummary {
   id: number;
   name: string;
   external_id: string;
+  slug?: string;
   basin_name?: string;
   province_name?: string;
   capacity_hm3?: number;
   latest_fill_pct?: number;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface ReservoirDetail {
@@ -69,10 +72,26 @@ export interface Basin {
   code?: string;
 }
 
+export interface BasinSummary {
+  id: number;
+  name: string;
+  code?: string;
+  reservoir_count: number;
+  total_capacity_hm3: number;
+  total_volume_hm3: number;
+  avg_fill_pct: number;
+  latest_observed_at?: string;
+}
+
+export interface BasinDetail extends BasinSummary {
+  reservoirs: ReservoirSummary[];
+}
+
 export interface RankingItem {
   rank: number;
   reservoir_id: number;
   name: string;
+  slug: string;
   value: number;
   metric: string;
 }

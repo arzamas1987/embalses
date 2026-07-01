@@ -75,8 +75,8 @@ func Paginate(page, perPage, total int) (offset, limit, totalPages int) {
 	if perPage < 1 {
 		perPage = 20
 	}
-	if perPage > 100 {
-		perPage = 100
+	if perPage > 10000 {
+		perPage = 10000
 	}
 	totalPages = (total + perPage - 1) / perPage
 	if totalPages < 1 {

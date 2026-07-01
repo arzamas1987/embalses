@@ -37,6 +37,7 @@
   },
   "reservoir": {
     "detail": "Reservoir detail",
+    "name": "Reservoir",
     "capacity": "Capacity",
     "volume": "Current volume",
     "fillPercent": "Fill percentage",

@@ -1,7 +1,11 @@
 import { useTranslation } from 'react-i18next'
 import { useParams, Link } from 'react-router-dom'
+import { useState } from 'react'
 import { useReservoir, useReservoirReadings } from '../hooks/useQueries'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import TimeRangeSelector from '../components/TimeRangeSelector'
+import { getRangeDates } from '../utils/date'
+import type { TimeRange } from '../utils/date'
 import type { ReservoirDetail, Reading } from '../types'
 
 const BackIcon = () => (
@@ -54,17 +58,24 @@ function getFillBadgeClass(pct: number): string {
 export default function ReservoirDetail() {
   const { t } = useTranslation()
   const { slug } = useParams<{ slug: string }>()
+  const [range, setRange] = useState<TimeRange>('1y')
+  const { since, until } = getRangeDates(range)
+
   const { data: resData, isLoading: resLoading } = useReservoir(slug ?? '')
-  const { data: readData, isLoading: readLoading } = useReservoirReadings(slug ?? '')
+  const { data: readData, isLoading: readLoading } = useReservoirReadings(slug ?? '', since, until)
 
   const reservoir = resData?.data as ReservoirDetail | undefined
   const readings = readData?.data as Reading[] | undefined
 
-  const chartData = readings?.map((r) => ({
-    date: r.observed_at,
-    fill_pct: r.fill_pct,
-    volume_hm3: r.volume_hm3,
-  })) ?? []
+  // Chart expects oldest → newest (left → right); API returns newest first.
+  const chartData = readings
+    ?.map((r) => ({
+      date: r.observed_at,
+      fill_pct: r.fill_pct,
+      volume_hm3: r.volume_hm3,
+    }))
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date)) ?? []
 
   const fillPct = reservoir?.latest_fill_pct
   const fillColor = fillPct != null ? getFillColor(fillPct) : '#94a3b8'
@@ -107,7 +118,7 @@ export default function ReservoirDetail() {
           <BackIcon />
           Volver al listado
         </Link>
-        <h1 className="text-2xl sm:text-3xl font-bold text-[#0f172a]">
+        <h1 data-testid="reservoir-detail-name" className="text-2xl sm:text-3xl font-bold text-[#0f172a]">
           {resLoading ? t('loading') : reservoir?.name ?? t('notFound')}
         </h1>
         {reservoir && (
@@ -144,11 +155,14 @@ export default function ReservoirDetail() {
       )}
 
       <div className="gov-card-elevated p-5 sm:p-6">
-        <div className="section-title">
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-          </svg>
-          {t('reservoir.historicalChart')}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+          <div className="section-title mb-0">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+            </svg>
+            {t('reservoir.historicalChart')}
+          </div>
+          <TimeRangeSelector value={range} onChange={setRange} />
         </div>
         {readLoading ? (
           <div className="flex items-center justify-center py-16 text-[#94a3b8]">
@@ -240,7 +254,7 @@ export default function ReservoirDetail() {
       </div>
 
       {readings && readings.length > 0 && (
-        <div className="mt-6 gov-card p-5">
+        <div data-testid="readings-table" className="mt-6 gov-card p-5">
           <h3 className="text-lg font-semibold text-[#0f172a] mb-4">Últimas lecturas</h3>
           <div className="overflow-x-auto">
             <table className="gov-table">

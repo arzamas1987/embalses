@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useReservoirs } from '../hooks/useQueries'
+import { useAllReservoirs, useComparatorData } from '../hooks/useQueries'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import TimeRangeSelector from '../components/TimeRangeSelector'
+import { getRangeDates } from '../utils/date'
+import type { TimeRange } from '../utils/date'
 import type { ReservoirSummary } from '../types'
 
 const RemoveIcon = () => (
@@ -16,43 +19,76 @@ const CompareIcon = () => (
   </svg>
 )
 
-const colors = ['#003366', '#16a34a', '#dc2626', '#9333ea', '#ea580c']
+const SearchIcon = () => (
+  <svg className="w-4 h-4 text-[#94a3b8]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+  </svg>
+)
 
-// Mock comparison data — in production this would fetch real aligned time-series
-const mockChartData = [
-  { date: '2024-01', r0: 45, r1: 62, r2: 38, r3: 55, r4: 71 },
-  { date: '2024-02', r0: 48, r1: 60, r2: 40, r3: 53, r4: 69 },
-  { date: '2024-03', r0: 52, r1: 58, r2: 42, r3: 51, r4: 67 },
-  { date: '2024-04', r0: 55, r1: 55, r2: 45, r3: 48, r4: 64 },
-  { date: '2024-05', r0: 58, r1: 52, r2: 48, r3: 45, r4: 62 },
-  { date: '2024-06', r0: 60, r1: 50, r2: 50, r3: 42, r4: 60 },
-]
+const colors = ['#003366', '#16a34a', '#dc2626', '#9333ea', '#ea580c']
 
 export default function Comparator() {
   const { t } = useTranslation()
-  const { data } = useReservoirs(1, 100)
-  const reservoirs = data?.data as ReservoirSummary[] | undefined
+  const { data } = useAllReservoirs()
+  const reservoirs = (data?.data as ReservoirSummary[] | undefined) ?? []
 
   const [selected, setSelected] = useState<ReservoirSummary[]>([])
   const [metric, setMetric] = useState<'fill_pct' | 'volume_hm3'>('fill_pct')
+  const [range, setRange] = useState<TimeRange>('1y')
+  const [search, setSearch] = useState('')
+
+  const { since, until } = getRangeDates(range)
+  const selectedSlugs = selected.map((s) => s.slug).filter(Boolean) as string[]
+  const { data: compareData, isLoading: compareLoading } = useComparatorData(selectedSlugs, since, until)
+  const series = compareData?.data as Record<string, { observed_at: string; fill_pct: number; volume_hm3: number }[]> | undefined
 
   const addReservoir = (r: ReservoirSummary) => {
     if (selected.length >= 5) return
     if (selected.find((s) => s.id === r.id)) return
     setSelected([...selected, r])
+    setSearch('')
   }
 
   const removeReservoir = (id: number) => {
     setSelected(selected.filter((s) => s.id !== id))
   }
 
-  const chartData = mockChartData.map(d => {
-    const result: Record<string, number | string> = { date: d.date }
-    selected.forEach((_, i) => {
-      result[`r${i}`] = metric === 'fill_pct' ? d[`r${i}` as keyof typeof d] : Math.round((d[`r${i}` as keyof typeof d] as number) * 12.5)
+  const filteredReservoirs = useMemo(() => {
+    const term = search.toLowerCase().trim()
+    if (!term) return []
+    return reservoirs
+      .filter((r) => !selected.find((s) => s.id === r.id))
+      .filter(
+        (r) =>
+          r.name.toLowerCase().includes(term) ||
+          (r.basin_name?.toLowerCase() || '').includes(term) ||
+          (r.province_name?.toLowerCase() || '').includes(term)
+      )
+      .slice(0, 50)
+  }, [reservoirs, search, selected])
+
+  const chartData = useMemo(() => {
+    if (!series || selectedSlugs.length === 0) return []
+
+    const dateSet = new Set<string>()
+    selectedSlugs.forEach((slug) => {
+      series[slug]?.forEach((p) => dateSet.add(p.observed_at))
     })
-    return result
-  })
+    const dates = Array.from(dateSet).sort()
+
+    return dates.map((date) => {
+      const row: Record<string, number | string> = { date }
+      selectedSlugs.forEach((slug, i) => {
+        const point = series[slug]?.find((p) => p.observed_at === date)
+        if (point) {
+          row[`r${i}`] = metric === 'fill_pct' ? point.fill_pct : point.volume_hm3
+        } else {
+          row[`r${i}`] = NaN
+        }
+      })
+      return row
+    })
+  }, [series, selectedSlugs, metric])
 
   return (
     <div className="animate-fade-in">
@@ -74,24 +110,35 @@ export default function Comparator() {
           </p>
 
           <div className="relative mb-4">
-            <select
-              className="gov-select w-full border border-[#e2e8f0] rounded-lg px-4 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#003366]/20 focus:border-[#003366]"
-              onChange={(e) => {
-                const r = reservoirs?.find((x) => x.id === Number(e.target.value))
-                if (r) addReservoir(r)
-                e.target.value = ''
-              }}
-              value=""
-            >
-              <option value="">Añadir embalse...</option>
-              {reservoirs
-                ?.filter((r) => !selected.find((s) => s.id === r.id))
-                .map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name} ({r.basin_name})
-                  </option>
+            <div className="absolute left-3 top-1/2 -translate-y-1/2">
+              <SearchIcon />
+            </div>
+            <input
+              type="text"
+              placeholder="Buscar embalse por nombre, cuenca o provincia..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 pr-4 py-2.5 w-full border border-[#e2e8f0] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#003366]/20 focus:border-[#003366] transition-all bg-white"
+            />
+            {search && filteredReservoirs.length > 0 && (
+              <div className="absolute z-10 mt-1 w-full bg-white border border-[#e2e8f0] rounded-lg shadow-elevated max-h-60 overflow-auto">
+                {filteredReservoirs.map((r) => (
+                  <button
+                    key={r.id}
+                    onClick={() => addReservoir(r)}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-[#f8fafc] border-b border-[#f1f5f9] last:border-0"
+                  >
+                    <div className="font-medium text-[#0f172a]">{r.name}</div>
+                    <div className="text-xs text-[#475569]">{r.basin_name} {r.province_name ? `· ${r.province_name}` : ''}</div>
+                  </button>
                 ))}
-            </select>
+              </div>
+            )}
+            {search && filteredReservoirs.length === 0 && (
+              <div className="absolute z-10 mt-1 w-full bg-white border border-[#e2e8f0] rounded-lg shadow-elevated p-3 text-sm text-[#475569]">
+                No se encontraron embalses
+              </div>
+            )}
           </div>
 
           {selected.length === 0 ? (
@@ -141,41 +188,53 @@ export default function Comparator() {
           </div>
         </div>
 
-        <div className="gov-card p-5">
-          <div className="section-title">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            {t('comparator.metric')}
+        <div className="space-y-6">
+          <div className="gov-card p-5">
+            <div className="section-title">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {t('comparator.metric')}
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => setMetric('fill_pct')}
+                className={`gov-btn text-sm justify-start ${
+                  metric === 'fill_pct'
+                    ? 'bg-[#003366] text-white hover:bg-[#004a74]'
+                    : 'bg-white text-[#475569] border border-[#e2e8f0] hover:bg-[#f8fafc]'
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+                </svg>
+                % Llenado
+              </button>
+              <button
+                onClick={() => setMetric('volume_hm3')}
+                className={`gov-btn text-sm justify-start ${
+                  metric === 'volume_hm3'
+                    ? 'bg-[#003366] text-white hover:bg-[#004a74]'
+                    : 'bg-white text-[#475569] border border-[#e2e8f0] hover:bg-[#f8fafc]'
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z" />
+                </svg>
+                Volumen (hm³)
+              </button>
+            </div>
           </div>
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={() => setMetric('fill_pct')}
-              className={`gov-btn text-sm justify-start ${
-                metric === 'fill_pct'
-                  ? 'bg-[#003366] text-white hover:bg-[#004a74]'
-                  : 'bg-white text-[#475569] border border-[#e2e8f0] hover:bg-[#f8fafc]'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+
+          <div className="gov-card p-5">
+            <div className="section-title mb-3">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
-              % Llenado
-            </button>
-            <button
-              onClick={() => setMetric('volume_hm3')}
-              className={`gov-btn text-sm justify-start ${
-                metric === 'volume_hm3'
-                  ? 'bg-[#003366] text-white hover:bg-[#004a74]'
-                  : 'bg-white text-[#475569] border border-[#e2e8f0] hover:bg-[#f8fafc]'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z" />
-              </svg>
-              Volumen (hm³)
-            </button>
+              Periodo
+            </div>
+            <TimeRangeSelector value={range} onChange={setRange} />
           </div>
         </div>
       </div>
@@ -186,58 +245,73 @@ export default function Comparator() {
             <CompareIcon />
             Comparación de {metric === 'fill_pct' ? 'porcentaje de llenado' : 'volumen'}
           </div>
-          <div className="h-[400px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 12, fill: '#475569' }}
-                  tickLine={false}
-                  axisLine={{ stroke: '#e2e8f0' }}
-                />
-                <YAxis
-                  tick={{ fontSize: 12, fill: '#475569' }}
-                  tickLine={false}
-                  axisLine={{ stroke: '#e2e8f0' }}
-                  label={{
-                    value: metric === 'fill_pct' ? '% Llenado' : 'Volumen (hm³)',
-                    angle: -90,
-                    position: 'insideLeft',
-                    style: { fill: '#475569', fontSize: 12 }
-                  }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#fff',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                    fontSize: 13,
-                  }}
-                  labelStyle={{ color: '#0f172a', fontWeight: 600, marginBottom: 4 }}
-                />
-                <Legend
-                  wrapperStyle={{ fontSize: 13, paddingTop: 16 }}
-                  iconType="circle"
-                  iconSize={8}
-                />
-                {selected.map((s, i) => (
-                  <Line
-                    key={s.id}
-                    type="monotone"
-                    dataKey={`r${i}`}
-                    name={s.name}
-                    stroke={colors[i]}
-                    strokeWidth={2.5}
-                    dot={false}
-                    activeDot={{ r: 4, fill: colors[i], stroke: '#fff', strokeWidth: 2 }}
-                    connectNulls
+          {compareLoading ? (
+            <div className="flex items-center justify-center py-16 text-[#94a3b8]">
+              <svg className="animate-spin h-6 w-6 mr-3" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Cargando datos...
+            </div>
+          ) : chartData.length > 0 ? (
+            <div className="h-[400px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 12, fill: '#475569' }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#e2e8f0' }}
                   />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+                  <YAxis
+                    tick={{ fontSize: 12, fill: '#475569' }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#e2e8f0' }}
+                    domain={metric === 'fill_pct' ? [0, 100] : ['auto', 'auto']}
+                    label={{
+                      value: metric === 'fill_pct' ? '% Llenado' : 'Volumen (hm³)',
+                      angle: -90,
+                      position: 'insideLeft',
+                      style: { fill: '#475569', fontSize: 12 }
+                    }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#fff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                      fontSize: 13,
+                    }}
+                    labelStyle={{ color: '#0f172a', fontWeight: 600, marginBottom: 4 }}
+                  />
+                  <Legend
+                    wrapperStyle={{ fontSize: 13, paddingTop: 16 }}
+                    iconType="circle"
+                    iconSize={8}
+                  />
+                  {selected.map((s, i) => (
+                    <Line
+                      key={s.id}
+                      type="monotone"
+                      dataKey={`r${i}`}
+                      name={s.name}
+                      stroke={colors[i % colors.length]}
+                      strokeWidth={2.5}
+                      dot={false}
+                      activeDot={{ r: 4, fill: colors[i], stroke: '#fff', strokeWidth: 2 }}
+                      connectNulls
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="text-center py-16 text-[#94a3b8]">
+              <p className="font-medium">No hay datos para el periodo seleccionado</p>
+            </div>
+          )}
         </div>
       )}
     </div>

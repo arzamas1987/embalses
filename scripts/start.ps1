@@ -1,196 +1,162 @@
 #!/usr/bin/env pwsh
-# start.ps1 - Start all Embalses services
-# Run from PowerShell (does NOT need Administrator)
+# scripts/start.ps1 — Start the Embalses SQLite stack and Vite frontend on free ports.
+# Usage: .\scripts\start.ps1 [apiBasePort] [frontendBasePort]
+#
+# Defaults: API 8082, frontend 5173. If a port is taken, the next free one is chosen.
+# The script uses the existing data/embalses.db (368+ SNCZI reservoirs).
 
 $ErrorActionPreference = "Stop"
 
-$repoRoot = "C:\Users\whala\git\embalses"
-$webDir = "$repoRoot\web"
-$logDir = "$repoRoot\logs"
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$apiBin = Join-Path $repoRoot "bin\api-sqlite.exe"
+$updaterBin = Join-Path $repoRoot "bin\updater.exe"
+$dbFile = Join-Path $repoRoot "data\embalses.db"
+$feDir = Join-Path $repoRoot "web"
+$pidFile = Join-Path $PSScriptRoot ".pids"
 
-# Ensure log directory exists
-if (-not (Test-Path $logDir)) {
-    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-}
+$apiBasePort = if ($args[0]) { [int]$args[0] } else { 8082 }
+$feBasePort = if ($args[1]) { [int]$args[1] } else { 5173 }
 
-# PID file to track started processes
-$pidFile = "$repoRoot\scripts\.pids"
+function Write-Step { param([string]$Message) Write-Host "`n>>> $Message" -ForegroundColor Cyan }
+function Write-Ok   { param([string]$Message) Write-Host "    OK: $Message" -ForegroundColor Green }
+function Write-Warn { param([string]$Message) Write-Host "    WARN: $Message" -ForegroundColor Yellow }
+function Write-ErrorMsg { param([string]$Message) Write-Host "    ERROR: $Message" -ForegroundColor Red }
 
-function Write-Step {
-    param([string]$Message)
-    Write-Host "`n>>> $Message" -ForegroundColor Cyan
-}
-
-function Write-Ok {
-    param([string]$Message)
-    Write-Host "    OK: $Message" -ForegroundColor Green
-}
-
-function Write-Warn {
-    param([string]$Message)
-    Write-Host "    WARN: $Message" -ForegroundColor Yellow
-}
-
-# --- Check prerequisites ---
-Write-Step "Checking prerequisites..."
-
-$hasGo = $null -ne (Get-Command go -ErrorAction SilentlyContinue)
-$hasNode = $null -ne (Get-Command node -ErrorAction SilentlyContinue)
-$hasNpm = $null -ne (Get-Command npm -ErrorAction SilentlyContinue)
-$hasDocker = $null -ne (Get-Command docker -ErrorAction SilentlyContinue)
-
-if (-not $hasGo) {
-    Write-Warn "Go not found. Please run scripts/setup.ps1 first."
-    exit 1
-}
-if (-not $hasNode -or -not $hasNpm) {
-    Write-Warn "Node.js/npm not found. Please run scripts/setup.ps1 first."
-    exit 1
-}
-if (-not $hasDocker) {
-    Write-Warn "Docker not found. Please install Docker Desktop first."
-    exit 1
-}
-
-Write-Ok "All prerequisites found"
-
-# --- Start Docker Desktop if not running ---
-Write-Step "Starting Docker Desktop..."
-$dockerProcess = Get-Process "Docker Desktop" -ErrorAction SilentlyContinue
-if (-not $dockerProcess) {
-    $dockerExe = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
-    if (Test-Path $dockerExe) {
-        Start-Process $dockerExe
-        Write-Ok "Docker Desktop starting..."
-        Write-Host "    Waiting for Docker to be ready..."
-        $tries = 0
-        while ($tries -lt 30) {
-            Start-Sleep -Seconds 2
-            try {
-                $null = docker ps 2>$null
-                Write-Ok "Docker is ready"
-                break
-            } catch {
-                $tries++
-            }
-        }
-        if ($tries -ge 30) {
-            Write-Warn "Docker may not be fully ready yet. Continuing anyway..."
-        }
-    } else {
-        Write-Warn "Docker Desktop executable not found. Make sure Docker Desktop is installed."
+function Find-FreePort {
+    param([int]$BasePort)
+    $port = $BasePort
+    while ($port -le 65535) {
+        $listener = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $listener) { return $port }
+        $port++
     }
+    throw "No free port found starting from $BasePort"
+}
+
+function Ensure-GoBinary {
+    param([string]$BinPath, [string]$CmdPath)
+    if (Test-Path $BinPath) { return }
+    Write-Warn "Binary not found: $BinPath"
+    if (Get-Command go -ErrorAction SilentlyContinue) {
+        Write-Step "Building $CmdPath with local Go..."
+        Push-Location $repoRoot
+        try { & go build -o $BinPath $CmdPath } finally { Pop-Location }
+    } else {
+        Write-Step "Building $CmdPath with Docker..."
+        docker run --rm -v "${repoRoot}:/app" -w /app golang:1.23-alpine go build -buildvcs=false -o $BinPath $CmdPath
+    }
+    Write-Ok "Built $BinPath"
+}
+
+# --- Cleanup old processes ---
+Write-Step "Cleaning up stale processes..."
+Get-Process -Name "api-sqlite" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "vite" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*web*" -or $_.CommandLine -like "*vite*" } | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+Write-Ok "Cleanup done"
+
+# --- Ensure database ---
+if (-not (Test-Path $dbFile)) {
+    Write-Step "Database not found. Creating $dbFile..."
+    Ensure-GoBinary $updaterBin "./cmd/updater"
+    & $updaterBin -db $dbFile -geo-only -seed-readings
+    Write-Ok "Database created"
 } else {
-    Write-Ok "Docker Desktop already running"
+    $size = (Get-Item $dbFile).Length / 1MB
+    Write-Ok "Database ready: $dbFile ($([math]::Round($size,2)) MB)"
 }
 
-# --- Start PostgreSQL ---
-Write-Step "Starting PostgreSQL..."
-Push-Location $repoRoot
-try {
-    docker compose up -d db
-    Write-Ok "PostgreSQL container started"
-    Write-Host "    Waiting for PostgreSQL to be ready..."
-    Start-Sleep -Seconds 3
-} finally {
-    Pop-Location
+# --- Ensure API binary ---
+Ensure-GoBinary $apiBin "./cmd/api-sqlite"
+
+# --- Pick free ports ---
+$apiPort = Find-FreePort $apiBasePort
+$fePort = Find-FreePort $feBasePort
+Write-Ok "API will use port: $apiPort"
+Write-Ok "Frontend will use port: $fePort"
+
+# --- Start API ---
+Write-Step "Starting SQLite API on http://localhost:$apiPort..."
+$env:DATABASE_URL = $dbFile
+$env:API_ADDR = ":$apiPort"
+$apiJob = Start-Job -ScriptBlock {
+    param($bin, $db, $port)
+    $env:DATABASE_URL = $db
+    $env:API_ADDR = ":$port"
+    & $bin
+} -ArgumentList $apiBin, $dbFile, $apiPort
+Start-Sleep -Seconds 2
+if ($apiJob.State -eq "Failed") {
+    Write-ErrorMsg "API failed to start"
+    exit 1
 }
+Write-Ok "API started in background job (ID: $($apiJob.Id))"
 
-# --- Set environment ---
-$env:DATABASE_URL = "postgres://postgres:postgres@localhost:5432/embalses?sslmode=disable"
-
-# --- Check if database needs migrations ---
-Write-Step "Running database migrations..."
-Push-Location $repoRoot
+# --- Frontend dependencies ---
+Push-Location $feDir
 try {
-    # Try to find migrate binary or download it
-    $migratePath = "$env:USERPROFILE\go\bin\migrate.exe"
-    if (-not (Test-Path $migratePath)) {
-        Write-Host "    Installing golang-migrate..."
-        go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+    if (-not (Test-Path "node_modules")) {
+        Write-Step "Installing frontend dependencies..."
+        npm install
+        Write-Ok "Dependencies installed"
     }
-    
-    if (Test-Path $migratePath) {
-        & $migratePath -path migrations -database "$env:DATABASE_URL" up
-        Write-Ok "Migrations applied"
-    } else {
-        Write-Warn "Could not find migrate. Please install it: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest"
-    }
-} finally {
-    Pop-Location
-}
 
-# --- Seed data ---
-Write-Step "Seeding data (6 months of readings)..."
-Push-Location $repoRoot
-try {
-    go run ./cmd/seed 2>&1 | Tee-Object -FilePath "$logDir\seed.log"
-    Write-Ok "Data seeded"
-} catch {
-    Write-Warn "Seed may have already run or had errors. Check logs: $logDir\seed.log"
-}
-finally {
-    Pop-Location
-}
-
-# --- Start API server ---
-Write-Step "Starting API server on port 8080..."
-Push-Location $repoRoot
-try {
-    $apiJob = Start-Job -ScriptBlock {
-        param($root)
-        $env:DATABASE_URL = "postgres://postgres:postgres@localhost:5432/embalses?sslmode=disable"
-        Set-Location $root
-        go run ./cmd/api 2>&1
-    } -ArgumentList $repoRoot
-
-    Write-Ok "API server started in background job (ID: $($apiJob.Id))"
-    Start-Sleep -Seconds 2
-} finally {
-    Pop-Location
-}
-
-# --- Build frontend ---
-Write-Step "Building frontend..."
-Push-Location $webDir
-try {
-    npm run build 2>&1 | Tee-Object -FilePath "$logDir\build.log"
-    Write-Ok "Frontend built successfully"
-} finally {
-    Pop-Location
-}
-
-# --- Start frontend preview ---
-Write-Step "Starting frontend on http://localhost:4174..."
-Push-Location $webDir
-try {
+    # --- Start frontend ---
+    Write-Step "Starting Vite frontend on http://localhost:$fePort..."
     $frontendJob = Start-Job -ScriptBlock {
-        param($dir)
+        param($dir, $port)
         Set-Location $dir
-        npm run preview -- --port 4174 2>&1
-    } -ArgumentList $webDir
-
-    Write-Ok "Frontend started in background job (ID: $($frontendJob.Id))"
+        $env:VITE_API_URL = "http://localhost:$port"
+        npx vite --port $port
+    } -ArgumentList $feDir, $fePort
     Start-Sleep -Seconds 3
+    if ($frontendJob.State -eq "Failed") {
+        Write-ErrorMsg "Frontend failed to start"
+        Stop-Job $apiJob -ErrorAction SilentlyContinue
+        exit 1
+    }
+    Write-Ok "Frontend started in background job (ID: $($frontendJob.Id))"
 } finally {
     Pop-Location
 }
 
-# --- Save PIDs for cleanup ---
-$pids = @{
+# --- Save PIDs ---
+@{
     apiJob = $apiJob.Id
     frontendJob = $frontendJob.Id
-}
-$pids | ConvertTo-Json | Out-File -FilePath $pidFile -Encoding UTF8
+    apiPort = $apiPort
+    fePort = $fePort
+} | ConvertTo-Json | Out-File -FilePath $pidFile -Encoding UTF8
 
 Write-Host "`n========================================" -ForegroundColor Green
-Write-Host "Embalses is running!" -ForegroundColor Green
+Write-Host "Embalses MVP is running!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "  Frontend:  http://localhost:4174"
-Write-Host "  API:       http://localhost:8080"
-Write-Host "  Health:    http://localhost:8080/healthz"
-Write-Host "  Logs:      $logDir"
-Write-Host "`nTo stop everything, run: $repoRoot\scripts\stop.ps1"
-Write-Host "`nPress Ctrl+C to exit this script (services keep running in background)"
-Write-Host "Press any key to exit..."
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+Write-Host "  Frontend:  http://localhost:$fePort"
+Write-Host "  API:       http://localhost:$apiPort"
+Write-Host "  DB:        $dbFile"
+Write-Host "`nTo stop everything, run: .\scripts\stop.ps1"
+Write-Host "Press Ctrl+C to exit this script (services keep running in background)"
+
+# Keep the script alive so Ctrl+C can stop the jobs cleanly.
+try {
+    while ($true) {
+        Start-Sleep -Seconds 1
+        if ($apiJob.State -eq "Completed" -or $apiJob.State -eq "Failed" -or $apiJob.State -eq "Stopped") {
+            Write-Warn "API job ended unexpectedly. Stopping frontend..."
+            Stop-Job $frontendJob -ErrorAction SilentlyContinue
+            break
+        }
+        if ($frontendJob.State -eq "Completed" -or $frontendJob.State -eq "Failed" -or $frontendJob.State -eq "Stopped") {
+            Write-Warn "Frontend job ended unexpectedly. Stopping API..."
+            Stop-Job $apiJob -ErrorAction SilentlyContinue
+            break
+        }
+    }
+} finally {
+    if (Test-Path $pidFile) { Remove-Item $pidFile -Force }
+    Stop-Job $apiJob -ErrorAction SilentlyContinue
+    Stop-Job $frontendJob -ErrorAction SilentlyContinue
+    Remove-Job $apiJob -ErrorAction SilentlyContinue
+    Remove-Job $frontendJob -ErrorAction SilentlyContinue
+}

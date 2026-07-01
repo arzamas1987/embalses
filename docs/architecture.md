@@ -21,33 +21,57 @@
 
 ## 2. High-level diagram
 
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'fontFamily': 'Inter, sans-serif' }}%%
+flowchart LR
+    subgraph SRC ["Official public sources"]
+        MITECO["MITECO weekly bulletin / historical XLSX"]
+        IGN["IGN / CNIG geography"]
+        SNCZI["SNCZI dam inventory"]
+    end
+
+    subgraph ING ["Ingestion"]
+        UPDATER["cmd/updater"]
+    end
+
+    subgraph BE ["Go backend"]
+        API["REST API"]
+        MCP["MCP server"]
+        QP["Safe query planner"]
+    end
+
+    subgraph FE ["Frontend"]
+        WEB["React + Vite SPA"]
+    end
+
+    subgraph DB ["MVP database"]
+        SQLITE[("SQLite<br/>data/embalses.db")]
+    end
+
+    MITECO -->|weekly / historical| UPDATER
+    IGN -->|geometry & basemap| UPDATER
+    SNCZI -->|dam metadata| UPDATER
+    UPDATER -->|idempotent upsert| SQLITE
+    API -->|read| SQLITE
+    MCP -->|tools| API
+    API -->|validated plan| QP
+    WEB -->|HTTPS /api/v1/*| API
+
+    classDef source fill:#4ECDC4,stroke:#2C3E50,stroke-width:2px,color:#fff,rx:10,ry:10;
+    classDef ingest fill:#FF9F43,stroke:#2C3E50,stroke-width:2px,color:#fff,rx:10,ry:10;
+    classDef backend fill:#45B7D1,stroke:#2C3E50,stroke-width:2px,color:#fff,rx:10,ry:10;
+    classDef frontend fill:#96CEB4,stroke:#2C3E50,stroke-width:2px,color:#2C3E50,rx:10,ry:10;
+    classDef db fill:#FF6B6B,stroke:#2C3E50,stroke-width:2px,color:#fff,rx:10,ry:10;
+    classDef default rx:10,ry:10;
+
+    class MITECO,IGN,SNCZI source;
+    class UPDATER ingest;
+    class API,MCP,QP backend;
+    class WEB frontend;
+    class SQLITE db;
 ```
-                         ┌──────────────────────────────────────────────┐
-                         │                Frontend (SPA)                 │
-                         │   React + Vite + TS, MapLibre GL, Recharts     │
-                         │   PWA · multi-language · "Fuentes" page        │
-                         └───────────────┬───────────────┬──────────────┘
-                                         │ HTTPS/JSON     │
-                                         ▼                ▼
-┌──────────────┐   MCP (stdio/HTTP)  ┌───────────────────────────────────┐
-│ AI agents /  │ ──────────────────▶ │            Go backend             │
-│ MCP clients  │                     │  chi router · REST API (versioned)│
-└──────────────┘                     │  Query Planner (safe, whitelisted)│
-                                      │  Assistant svc → Gemini (optional)│
-        ┌──────────────┐   call       │  Ingestion workers / scheduler    │
-        │  Gemini API  │ ◀────────────│  Lineage + Data-quality services  │
-        │  (optional)  │   plan only   └───────────────┬───────────────────┘
-        └──────────────┘                               │ pgx / sqlc
-                                                        ▼
-                                      ┌───────────────────────────────────┐
-                                      │   PostgreSQL 16 + PostGIS (stock)  │
-                                      │  reservoirs · readings · dams ·    │
-                                      │  geometries · sources · quality    │
-                                      └───────────────────────────────────┘
-                                                        ▲
-   Official sources ── ingestion ──────────────────────┘
-   MITECO XLSX/PDF · SNCZI Shapefile · IGN WFS/WMS · SAIH (Ebro,Júcar) · AEMET
-```
+
+> **MVP note:** The running MVP currently uses **SQLite** (`data/embalses.db`) instead of PostgreSQL+PostGIS. PostgreSQL+PostGIS remains the planned target for production/multibasin scale (see §4).
 
 ## 3. Backend (Go)
 
@@ -101,7 +125,19 @@ A two-stage, **no-arbitrary-SQL** pipeline:
 > The LLM **never** emits SQL and never touches the DB directly. Worst case, a
 > malformed intent is rejected — it cannot run unsafe queries.
 
-## 4. Database (PostgreSQL + PostGIS)
+## 4. Database
+
+### 4.1 MVP — SQLite (`data/embalses.db`)
+
+The current MVP stores everything in a single **SQLite** file:
+
+- File: `data/embalses.db`.
+- Managed by `internal/storage/sqlite`.
+- Accessed by `cmd/api-sqlite` and `cmd/updater`.
+- Schema is created/updated with `sqlite.Migrate()`.
+- No external database server is required, which keeps local development friction minimal.
+
+### 4.2 Production target — PostgreSQL 16 + PostGIS
 
 - **PostgreSQL 16** (permissive licence) + **stock PostGIS** (GPL-2.0, used as a
   service over SQL only — see `licensing.md`; **never modified/redistributed**).
@@ -168,6 +204,38 @@ complexity for a local-first SPA.)
 
 ## 9. Local Docker Compose
 
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'fontFamily': 'Inter, sans-serif' }}%%
+flowchart TB
+    subgraph Docker ["docker compose"]
+        direction TB
+        WEB["web<br/>Vite / nginx"]
+        API["api<br/>Go REST API"]
+        MCP["mcp<br/>Go MCP server"]
+        INGEST["ingest<br/>updater cron"]
+        MIGRATE["migrate<br/>golang-migrate"]
+        DB[("db<br/>PostgreSQL + PostGIS")]
+    end
+
+    USER["Browser / MCP client"] -->|HTTP| WEB
+    USER -->|HTTP| API
+    USER -->|MCP| MCP
+    WEB -->|/api/v1/*| API
+    API -->|pgx| DB
+    MCP -->|tools| API
+    INGEST -->|writes| DB
+    MIGRATE -->|migrations| DB
+
+    classDef service fill:#45B7D1,stroke:#2C3E50,stroke-width:2px,color:#fff,rx:10,ry:10;
+    classDef db fill:#FF6B6B,stroke:#2C3E50,stroke-width:2px,color:#fff,rx:10,ry:10;
+    classDef user fill:#FFEAA7,stroke:#2C3E50,stroke-width:2px,color:#2C3E50,rx:10,ry:10;
+    classDef default rx:10,ry:10;
+
+    class WEB,API,MCP,INGEST,MIGRATE service;
+    class DB db;
+    class USER user;
+```
+
 ```yaml
 # illustrative only — not committed code
 services:
@@ -181,6 +249,8 @@ services:
 - Single `.env` (git-ignored) drives all services; `.env.example` documents keys
   (`DATABASE_URL`, `GEMINI_API_KEY` optional, `AEMET_API_KEY` optional).
 - Healthchecks + `depends_on` ordering; named volume for Postgres data.
+- **MVP shortcut:** you can also run `cmd/api-sqlite` directly against
+  `data/embalses.db` without Docker.
 
 ## 10. Testing & CI (GitHub Actions)
 - **Backend:** `go test` (unit + integration against a Postgres/PostGIS service

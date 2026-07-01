@@ -1,8 +1,8 @@
 # Embalses — Migration Guide: From Windows to Ubuntu WSL
 
 > **Date:** 2026-06-28
-> **Branch:** `mvp/05-frontend-mvp`
-> **Status:** Phases 0–5 complete. MVP running in Docker. UI uses synthetic placeholder data; real MITECO ingestion pending.
+> **Branch:** `phase/06-real-data`
+> **Status:** Phase 6 complete. SQLite database with real GeoJSON fixture data + synthetic readings. Two backends coexist: PostgreSQL (Docker) and SQLite (file-based). Updater tool with incremental fetch logic. MITECO/SAIH ingestion stubs ready.
 
 ---
 
@@ -59,13 +59,21 @@ embalses/
 │   ├── admin/
 │   │   └── main.go                # Admin CLI entry point
 │   ├── api/
-│   │   └── main.go                # API server entry point
+│   │   └── main.go                # API server entry point (PostgreSQL)
+│   ├── api-sqlite/
+│   │   └── main.go                # API server entry point (SQLite — no Docker)
 │   ├── ingest/
 │   │   └── main.go                # Batch data ingestion (Phase 2)
 │   ├── mcp/
 │   │   └── main.go                # MCP server entry point
-│   └── seed/
-│       └── main.go                # 6-month synthetic seed data generator
+│   ├── seed/
+│   │   └── main.go                # 6-month synthetic seed data generator (PostgreSQL)
+│   └── updater/
+│       ├── main.go                # SQLite updater: GeoJSON + MITECO + SAIH
+│       ├── geo.go                 # SNCZI + IGN GeoJSON importer
+│       ├── miteco.go              # MITECO historical + weekly fetcher (stubs)
+│       ├── saih.go                # SAIH per-basin fetcher (stubs)
+│       └── provinces.go           # Province → Comunidad Autónoma mapping
 ├── docs/
 │   ├── architecture.md
 │   ├── benchmark.md
@@ -80,18 +88,29 @@ embalses/
 ├── internal/
 │   ├── api/
 │   │   └── v1/
-│   │       ├── handlers.go        # 11 HTTP handlers + Query endpoint
+│   │       ├── handlers.go        # 11 HTTP handlers + Query endpoint (PostgreSQL)
 │   │       ├── handlers_test.go   # 12 integration tests
 │   │       ├── middleware.go      # API key auth + rate limit + quota
 │   │       ├── queries.go         # All parameterized SQL queries
 │   │       ├── responses.go       # Standardized JSON envelope
 │   │       └── routes.go          # Route registration
+│   ├── api/
+│   │   └── v1sqlite/
+│   │       ├── handlers.go        # 11 HTTP handlers + Query endpoint (SQLite)
+│   │       ├── middleware.go      # API key auth + rate limit + quota (SQLite)
+│   │       └── routes.go          # Route registration (SQLite)
 │   ├── config/
 │   │   ├── config.go              # DATABASE_URL from env
 │   │   └── config_test.go
 │   ├── db/
 │   │   ├── db.go                  # pgxpool connection wrapper
 │   │   └── db_test.go
+│   ├── storage/
+│   │   └── sqlite/
+│   │       ├── db.go              # SQLite open + WAL mode + foreign keys
+│   │       ├── schema.go          # CREATE TABLE statements (all tables)
+│   │       ├── queries.go         # All SQLite queries (reservoirs, readings, rankings, etc.)
+│   │       └── seed.go            # Seed test API key
 │   ├── geo/
 │   │   ├── ign/                   # IGN parser + ingest
 │   │   │   ├── ingest.go
@@ -187,6 +206,8 @@ embalses/
 ├── docker-compose.yml             # PostgreSQL + PostGIS + API + Web + MCP
 ├── Dockerfile                     # Multi-target Go build (api, mcp, ingest)
 ├── Dockerfile.migrate             # golang-migrate container (broken — latest requires Go 1.24)
+├── data/
+│   └── embalses.db                # SQLite database (committed to git — canonical data store)
 ├── Makefile
 ├── README.md
 ├── go.mod                         # Go 1.23, chi, pgx
@@ -465,10 +486,33 @@ docker run --rm \
 | Service | URL |
 |---------|-----|
 | **Frontend** | http://localhost:5173 |
-| **API** | http://localhost:8080 |
+| **API (PostgreSQL)** | http://localhost:8080 |
+| **API (SQLite)** | http://localhost:8082 |
 | **Health** | http://localhost:8080/healthz |
 
-### 4. Manual API tests
+### 4. Quick start — SQLite backend (no Docker required)
+
+The SQLite backend runs without PostgreSQL or Docker. Perfect for development and data exploration:
+
+```bash
+cd ~/embalses
+
+# Build updater and API
+make updater
+make api-sqlite
+
+# Run updater to populate the database (one-time)
+make updater-run
+# Or manually: ./bin/updater -db data/embalses.db -geo-only -seed-readings
+
+# Start the SQLite API server
+make api-sqlite-run
+# Or manually: DATABASE_URL=data/embalses.db ./bin/api-sqlite
+
+# API will be available on :8080 (or set API_ADDR=:8082 to avoid conflicts)
+```
+
+### 5. Manual API tests (PostgreSQL backend)
 
 ```bash
 curl -H "X-API-Key: test-key-123" http://localhost:8080/api/v1/sources
@@ -476,7 +520,15 @@ curl -H "X-API-Key: test-key-123" http://localhost:8080/api/v1/reservoirs
 curl -H "X-API-Key: test-key-123" "http://localhost:8080/api/v1/rankings/reservoirs?metric=fullest&limit=5"
 ```
 
-### 5. One-command start script (native Go + Node, no Docker for API/Web)
+### 6. Manual API tests (SQLite backend)
+
+```bash
+curl -H "X-Env: development" http://localhost:8082/api/v1/reservoirs
+curl -H "X-Env: development" http://localhost:8082/api/v1/reservoirs/embalse-de-mequinenza
+curl -H "X-Env: development" "http://localhost:8082/api/v1/rankings/reservoirs?metric=fullest&limit=5"
+```
+
+### 7. One-command start script (native Go + Node, no Docker for API/Web)
 
 Create `~/embalses/start.sh`:
 
@@ -541,9 +593,9 @@ chmod +x ~/embalses/start.sh
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
+| `DATABASE_URL` | Yes | — | PostgreSQL connection string (for `cmd/api`) or SQLite path (for `cmd/api-sqlite`) |
 | `VITE_API_KEY` | Yes | `test-key-123` | API key for frontend requests |
-| `PORT` | No | `8080` | API server port |
+| `API_ADDR` | No | `:8080` | API server port (set `:8082` for SQLite to avoid conflicts) |
 | `API_KEY_QUOTA_DAILY` | No | `1000` | Default daily quota per key |
 | `API_KEY_RATE_LIMIT_PER_MIN` | No | `120` | Default rate limit per key |
 
@@ -609,7 +661,95 @@ cd ~/embalses
 
 ---
 
-## What to Fine-Tune Next (Phase 6 — Data Ingestion & UI Polish)
+### Phase 6: Real Data — SQLite Backend (Issues #47–#52) — Current branch `phase/06-real-data`
+
+| Issue | Task | What was done |
+|-------|------|---------------|
+| #47 | SQLite schema | `internal/storage/sqlite/schema.go` — full schema with GPS, cuenca, provincia, comunidad autónoma |
+| #48 | SQLite storage layer | `internal/storage/sqlite/queries.go` — all v1 API queries (reservoirs, readings, basins, rankings, comparator, data quality, lineage) |
+| #49 | SQLite API server | `cmd/api-sqlite/` — full v1 API on SQLite backend (no Docker required) |
+| #50 | Updater tool | `cmd/updater/` — incremental fetch logic, GeoJSON importer, MITECO/SAIH stubs |
+| #51 | Province → CCAA mapping | `cmd/updater/provinces.go` — 52 provinces mapped to 19 comunidades autónomas |
+| #52 | Commit SQLite DB | `data/embalses.db` — committed to git repo as the canonical data store |
+
+**Architecture change:** Two backends now coexist:
+
+```
+PostgreSQL (Docker)          SQLite (file-based)
+cmd/api → pgxpool            cmd/api-sqlite → modernc.org/sqlite
+Docker required              No Docker required
+Full PostGIS spatial         Simplified GPS (lat/lng columns)
+migrations/ + migrate tool     schema.go auto-migrates on startup
+```
+
+**SQLite schema enhancements:**
+- `provinces.comunidad_autonoma` — Spanish autonomous community
+- `reservoirs.slug` — URL-friendly identifier (e.g., `embalse-de-mequinenza`)
+- `reservoirs.latitude` / `reservoirs.longitude` — WGS84 GPS (from IGN polygon centroid)
+- `updater_state` — tracks last fetch date per source for incremental updates
+
+**Updater tool (`cmd/updater`):**
+
+```bash
+# One-time GeoJSON import + synthetic readings
+./bin/updater -db data/embalses.db -geo-only -seed-readings
+
+# Full historical import (MITECO Excel — not yet implemented)
+./bin/updater -db data/embalses.db -full
+
+# Incremental update (runs via cron)
+./bin/updater -db data/embalses.db
+```
+
+- Imports `test/fixtures/snczi_dams.geojson` (SNCZI dam inventory) and `test/fixtures/ign_reservoirs.geojson` (IGN WGS84 polygons)
+- Calculates polygon centroid from IGN for reservoir GPS coordinates
+- Generates URL slugs via `slugify()` (lowercase, accents removed, spaces → hyphens)
+- Seeds synthetic 6-month readings for UI testing without real MITECO data
+- MITECO weekly bulletin and SAIH per-basin fetchers are stubs — ready for real URLs
+
+**Current data in `data/embalses.db`:**
+
+| Table | Count | Source |
+|-------|-------|--------|
+| reservoirs | 2 | SNCZI GeoJSON fixture (Mequinenza, Sau) |
+| dams | 2 | SNCZI GeoJSON fixture |
+| basins | 1 | Ebro (from SNCZI fixture) |
+| provinces | 2 | Zaragoza, Barcelona (from SNCZI fixture) |
+| readings | 52 | Synthetic 6-month weekly data (Dec 2025 → Jun 2026) |
+| sources | 3 | MITECO, SNCZI, IGN |
+
+**API endpoints verified on SQLite backend:**
+
+```bash
+# List reservoirs (with slugs)
+curl -H "X-Env: development" http://localhost:8082/api/v1/reservoirs
+
+# Single reservoir by slug
+curl -H "X-Env: development" http://localhost:8082/api/v1/reservoirs/embalse-de-mequinenza
+
+# Rankings
+curl -H "X-Env: development" "http://localhost:8082/api/v1/rankings/reservoirs?metric=fullest&limit=5"
+
+# Readings
+curl -H "X-Env: development" "http://localhost:8082/api/v1/reservoirs/embalse-de-mequinenza/readings?limit=5"
+
+# Basins, data quality, comparator, query — all working
+```
+
+**Makefile targets added:**
+
+```makefile
+updater:          # Build updater binary
+updater-run:      # Run updater with GeoJSON + synthetic seed
+api-sqlite:       # Build SQLite API server
+api-sqlite-run:   # Run SQLite API server (DATABASE_URL=data/embalses.db)
+```
+
+**Go dependency:** `modernc.org/sqlite v1.36.2` (pure Go, no CGO, no external SQLite library required)
+
+---
+
+## What to Fine-Tune Next (Phase 7 — MITECO Data Ingestion & UI Polish)
 
 ### A. Replace synthetic data with real MITECO data (Priority: High)
 
@@ -645,8 +785,10 @@ cd ~/embalses
 ### C. Infrastructure
 
 11. **Fix `Dockerfile.migrate`** — Current `latest` tag requires Go 1.24, but project uses Go 1.23. Pin to a compatible version or build from a compatible base.
-12. **Add LICENSE file** — MIT license is referenced in docs but the file is missing from the repo.
-13. **Add `configs/` directory** — For parser configurations, basin mappings, etc.
+12. **Scale to full MITECO dataset** — ~374 peninsular reservoirs with real weekly data from Boletín Hidrológico
+13. **Expand SNCZI/IGN fixtures** — The test fixtures only contain 2 reservoirs; replace with full Spanish inventory
+14. **Add LICENSE file** — MIT license is referenced in docs but the file is missing from the repo.
+15. **Add `configs/` directory** — For parser configurations, basin mappings, etc.
 
 ---
 
@@ -665,4 +807,4 @@ MIT License (file missing from repo — should be added). Data is MITECO open da
 ---
 
 *Generated by Kimi Work on 2026-06-28.*
-*Last updated: Phase 5 complete, MVP running in Docker/WSL with synthetic data. E2E CI smoke test added. Ready for real MITECO data ingestion (Phase 6).*
+*Last updated: Phase 6 complete. SQLite backend with real GeoJSON data + synthetic readings. Two backends coexist: PostgreSQL (Docker) and SQLite (file-based). Ready for MITECO data ingestion (Phase 7).*

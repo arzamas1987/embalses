@@ -1,33 +1,23 @@
 #!/usr/bin/env pwsh
-# setup.ps1 - Install all dependencies for Embalses
-# Run as Administrator
+# scripts/setup.ps1 — Install dependencies for the Embalses SQLite stack.
+# Run as Administrator (installs Go/Node to C:\Tools).
 
 $ErrorActionPreference = "Stop"
+
+$installDir = "C:\Tools"
+$envFile = "$env:USERPROFILE\.embalses-env.ps1"
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$webDir = Join-Path $repoRoot "web"
 
 function Test-Command {
     param([string]$Command)
     try { $null = Get-Command $Command -ErrorAction Stop; return $true } catch { return $false }
 }
 
-function Write-Step {
-    param([string]$Message)
-    Write-Host "`n>>> $Message" -ForegroundColor Cyan
-}
+function Write-Step { param([string]$Message) Write-Host "`n>>> $Message" -ForegroundColor Cyan }
+function Write-Ok   { param([string]$Message) Write-Host "    OK: $Message" -ForegroundColor Green }
+function Write-Warn { param([string]$Message) Write-Host "    WARN: $Message" -ForegroundColor Yellow }
 
-function Write-Ok {
-    param([string]$Message)
-    Write-Host "    OK: $Message" -ForegroundColor Green
-}
-
-function Write-Warn {
-    param([string]$Message)
-    Write-Host "    WARN: $Message" -ForegroundColor Yellow
-}
-
-$installDir = "C:\Tools"
-$envFile = "$env:USERPROFILE\.embalses-env.ps1"
-
-# Ensure install directory exists
 if (-not (Test-Path $installDir)) {
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 }
@@ -44,10 +34,9 @@ if (Test-Command "go") {
     $goDir = "$installDir\go"
 
     Invoke-WebRequest -Uri $goUrl -OutFile $goZip -UseBasicParsing
-    Expand-Archive -Path $goZip -DestinationPath $goDir -Force
+    Expand-Archive -Path $goZip -DestinationPath $installDir -Force
     Remove-Item $goZip
 
-    # Add to PATH via environment variable
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($userPath -notlike "*$goDir\bin*") {
         [Environment]::SetEnvironmentVariable("Path", "$userPath;$goDir\bin", "User")
@@ -72,9 +61,9 @@ if (Test-Command "node") {
     Expand-Archive -Path $nodeZip -DestinationPath $installDir -Force
     Remove-Item $nodeZip
 
-    # Rename extracted folder to consistent name
     $extracted = Get-ChildItem "$installDir" -Filter "node-v*" -Directory | Select-Object -First 1
     if ($extracted) {
+        if (Test-Path $nodeDir) { Remove-Item $nodeDir -Recurse -Force }
         Rename-Item $extracted.FullName $nodeDir -Force
     }
 
@@ -87,22 +76,18 @@ if (Test-Command "node") {
     Write-Ok "Node.js installed at $nodeDir"
 }
 
-# Verify npm
 if (Test-Command "npm") {
-    $npmVersion = (npm -v)
-    Write-Ok "npm available: $npmVersion"
+    Write-Ok "npm available: $(npm -v)"
 } else {
     Write-Warn "npm not found after Node.js install. Try restarting PowerShell."
 }
 
-# --- Install Docker Desktop ---
+# --- Install Docker Desktop (download only) ---
 Write-Step "Checking Docker..."
 if (Test-Command "docker") {
-    $dockerVersion = (docker --version)
-    Write-Ok "Docker already installed: $dockerVersion"
+    Write-Ok "Docker already installed: $(docker --version)"
 } else {
-    Write-Warn "Docker not found. Downloading Docker Desktop..."
-    Write-Host "    NOTE: Docker Desktop requires a manual install. Downloading installer..."
+    Write-Warn "Docker not found. Downloading Docker Desktop installer..."
     $dockerUrl = "https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe"
     $dockerInstaller = "$env:TEMP\DockerDesktopInstaller.exe"
     Invoke-WebRequest -Uri $dockerUrl -OutFile $dockerInstaller -UseBasicParsing
@@ -113,7 +98,6 @@ if (Test-Command "docker") {
 
 # --- Install frontend dependencies ---
 Write-Step "Installing frontend dependencies..."
-$webDir = "C:\Users\whala\git\embalses\web"
 if (Test-Path $webDir) {
     Push-Location $webDir
     try {
@@ -126,19 +110,50 @@ if (Test-Path $webDir) {
     Write-Warn "Web directory not found at $webDir"
 }
 
+# --- Build Go binaries ---
+Write-Step "Building Go binaries..."
+Push-Location $repoRoot
+try {
+    go build -o bin\updater.exe .\cmd\updater
+    Write-Ok "Built bin\updater.exe"
+    go build -o bin\api-sqlite.exe .\cmd\api-sqlite
+    Write-Ok "Built bin\api-sqlite.exe"
+} catch {
+    Write-Warn "Could not build Go binaries: $_"
+} finally {
+    Pop-Location
+}
+
+# --- Seed database if missing ---
+$dbFile = Join-Path $repoRoot "data\embalses.db"
+$updaterBin = Join-Path $repoRoot "bin\updater.exe"
+if (-not (Test-Path $dbFile)) {
+    Write-Step "Seeding SQLite database..."
+    if (Test-Path $updaterBin) {
+        & $updaterBin -db $dbFile -geo-only -seed-readings
+        Write-Ok "Database seeded"
+    } else {
+        Write-Warn "Updater binary not found; run .\scripts\start.ps1 to create the database automatically"
+    }
+} else {
+    Write-Ok "Database already exists: $dbFile"
+}
+
 # --- Write environment helper script ---
 Write-Step "Creating environment helper script..."
+$goDir = "$installDir\go\bin"
+$nodeDir = "$installDir\nodejs"
 $envContent = @"
 # Embalses environment setup
 # Source this file in PowerShell: . `$env:USERPROFILE\.embalses-env.ps1
 
-`$goDir = "$installDir\go\bin"
-`$nodeDir = "$installDir\nodejs"
+`$goDir = "$goDir"
+`$nodeDir = "$nodeDir"
 
 if (Test-Path `$goDir) { `$env:Path += ";`$goDir" }
 if (Test-Path `$nodeDir) { `$env:Path += ";`$nodeDir" }
 
-`$env:DATABASE_URL = "postgres://postgres:postgres@localhost:5432/embalses?sslmode=disable"
+`$env:DATABASE_URL = "$dbFile"
 `$env:VITE_API_KEY = "test-key-123"
 "@
 
@@ -151,5 +166,5 @@ Write-Host "========================================" -ForegroundColor Green
 Write-Host "`nNext steps:"
 Write-Host "  1. Restart PowerShell (to reload PATH)"
 Write-Host "  2. Run: . $envFile"
-Write-Host "  3. Then run: C:\Users\whala\git\embalses\scripts\start.ps1"
+Write-Host "  3. Then run: .\scripts\start.ps1"
 Write-Host "`nIf Docker was not installed, install Docker Desktop from the downloaded installer first."
